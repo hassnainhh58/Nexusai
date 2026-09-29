@@ -471,6 +471,12 @@ body {
   font-size: 11px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .settings-button {
   width: 38px;
   height: 38px;

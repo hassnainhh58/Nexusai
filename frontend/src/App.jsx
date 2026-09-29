@@ -4,7 +4,11 @@ import {
   useState,
 } from "react";
 
+import { Show, UserButton } from "@clerk/react";
+
 import ReactMarkdown from "react-markdown";
+
+import LandingPage from "./components/LandingPage.jsx";
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -634,6 +638,12 @@ function App() {
   // ==========================================
 
   return (
+    <>
+      <Show when="signed-out">
+        <LandingPage />
+      </Show>
+
+      <Show when="signed-in">
     <div
       className={`app ${theme}-theme`}
     >
@@ -914,15 +924,21 @@ function App() {
           </div>
 
 
-          <button
-            className="settings-button"
-            title="Settings"
-            onClick={() =>
-              setSettingsOpen(true)
-            }
-          >
-            ⚙
-          </button>
+          <div className="header-actions">
+
+            <UserButton afterSignOutUrl="/" />
+
+            <button
+              className="settings-button"
+              title="Settings"
+              onClick={() =>
+                setSettingsOpen(true)
+              }
+            >
+              ⚙
+            </button>
+
+          </div>
 
         </header>
 
@@ -1391,6 +1407,8 @@ function App() {
       )}
 
     </div>
+      </Show>
+    </>
   );
 }
 
