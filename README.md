@@ -1,4 +1,4 @@
 
 cd /d G:\nexusai
 venv\Scripts\activate
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload"# Nexusai" 
