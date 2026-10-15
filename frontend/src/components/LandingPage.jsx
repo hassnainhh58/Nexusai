@@ -85,6 +85,8 @@ const FEATURES = [
   },
 ];
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 function LandingPage() {
   return (
     <div className="landing-page">
@@ -154,7 +156,7 @@ function LandingPage() {
       </section>
 
       <footer className="landing-footer">
-        &copy; {new Date().getFullYear()} NexusAI. All rights reserved.
+        &copy; {CURRENT_YEAR} NexusAI. All rights reserved.
       </footer>
     </div>
   );
