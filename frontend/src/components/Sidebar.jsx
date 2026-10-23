@@ -12,8 +12,11 @@ export default function Sidebar({
   onNewChat,
   onSelect,
   onRename,
+  onSetPinned,
   onDelete,
   onClearAll,
+  searchTerm,
+  onSearchTermChange,
   version,
 }) {
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -103,6 +106,39 @@ export default function Sidebar({
         <span className="new-chat-shortcut">⌘K</span>
       </button>
 
+      <div className="sidebar-search">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          type="search"
+          className="sidebar-search-input"
+          value={searchTerm}
+          onChange={(event) => onSearchTermChange(event.target.value)}
+          placeholder="Search chats"
+          aria-label="Search conversations"
+          spellCheck="false"
+        />
+        {searchTerm ? (
+          <button
+            className="sidebar-search-clear"
+            onClick={() => onSearchTermChange("")}
+            aria-label="Clear search"
+            title="Clear search"
+            type="button"
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
+
       <div className="conversation-section">
         <div className="section-title-row">
           <span className="section-title">CONVERSATIONS</span>
@@ -111,18 +147,26 @@ export default function Sidebar({
 
         <div className="conversation-list">
           {conversations.length === 0 ? (
-            <div className="empty-conversations">
-              <span className="empty-icon">💬</span>
-              <span>No conversations yet</span>
-              <small>Start asking questions to begin</small>
-            </div>
+            searchTerm.trim() ? (
+              <div className="empty-conversations">
+                <span className="empty-icon">🔍</span>
+                <span>No matches</span>
+                <small>No chat matches “{searchTerm.trim()}”</small>
+              </div>
+            ) : (
+              <div className="empty-conversations">
+                <span className="empty-icon">💬</span>
+                <span>No conversations yet</span>
+                <small>Start asking questions to begin</small>
+              </div>
+            )
           ) : (
             conversations.map((conversation) => (
               <div
                 key={conversation.id}
                 className={`conversation-item ${
                   conversation.id === conversationId ? "active" : ""
-                }`}
+                }${conversation.pinned ? " pinned" : ""}`}
               >
                 {editingId === conversation.id ? (
                   <input
@@ -147,6 +191,11 @@ export default function Sidebar({
                       <span className="conversation-title" title={conversation.title}>
                         {conversation.title}
                       </span>
+                      {conversation.pinned ? (
+                        <span className="conversation-pin" title="Pinned" aria-label="Pinned">
+                          📌
+                        </span>
+                      ) : null}
                     </button>
 
                     <button
@@ -170,6 +219,16 @@ export default function Sidebar({
                         className="conversation-menu"
                         onClick={(event) => event.stopPropagation()}
                       >
+                        <button
+                          onClick={() => {
+                            setOpenMenuId(null);
+                            onSetPinned?.(conversation.id, !conversation.pinned);
+                          }}
+                          type="button"
+                        >
+                          <span className="menu-icon">{conversation.pinned ? "📌" : "📍"}</span>
+                          <span>{conversation.pinned ? "Unpin" : "Pin"}</span>
+                        </button>
                         <button
                           onClick={(event) => startEditing(event, conversation)}
                           type="button"

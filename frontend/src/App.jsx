@@ -16,6 +16,7 @@ import { formatModelName } from "./lib/format.js";
 
 const APP_VERSION = "v1.1.0";
 const LAST_CONVERSATION_KEY = "nexusai-last-conversation";
+const MODEL_KEY = "nexusai-model";
 const NOTIFICATION_TIMEOUT = 4000;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
@@ -43,7 +44,10 @@ export default function App() {
 
   const textareaRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const stickToBottomRef = useRef(true);
   const restoredRef = useRef(false);
+  const lastSearchRef = useRef("");
 
   const [input, setInput] = useState("");
   const [file, setFile] = useState(null);
@@ -52,6 +56,12 @@ export default function App() {
   const [copiedId, setCopiedId] = useState(null);
   const [notification, setNotification] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState(
+    () => localStorage.getItem(MODEL_KEY) || ""
+  );
 
   const notify = useCallback((type, message) => {
     setNotification({ type, message });
@@ -78,10 +88,12 @@ export default function App() {
     hasMore,
     loadingList,
     load: loadConversations,
+    search: searchConversations,
     loadMore,
     addLocal,
     refreshAfterTurn,
     rename,
+    setPinned,
     remove,
     clearAll,
   } = useConversations({ apiFetch, notify });
@@ -92,8 +104,10 @@ export default function App() {
     model,
     loading,
     sendMessage,
+    editMessage,
     editImage,
     regenerate,
+    updateMessage,
     stop,
     load: loadChat,
     reset: resetChat,
@@ -113,6 +127,8 @@ export default function App() {
         const data = await response.json();
         loadChat(id, data.messages);
         localStorage.setItem(LAST_CONVERSATION_KEY, String(id));
+        stickToBottomRef.current = true;
+        setShowJumpToLatest(false);
       } catch (error) {
         notify?.("error", error.message || "Could not load the conversation.");
       }
@@ -128,8 +144,13 @@ export default function App() {
     clearAttachment();
     setSidebarOpen(false);
     setSettingsOpen(false);
+    setSearchTerm("");
+    lastSearchRef.current = "";
+    searchConversations("");
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
     textareaRef.current?.focus();
-  }, [loading, resetChat, clearAttachment]);
+  }, [loading, resetChat, clearAttachment, searchConversations]);
 
   // Initial load: wait for Clerk, then restore the last conversation.
   useEffect(() => {
@@ -168,10 +189,78 @@ export default function App() {
     return () => document.removeEventListener("keydown", handleShortcut);
   }, [startNewChat]);
 
-  // Keep the newest message in view while streaming.
+  // The model catalogue is optional: if the provider cannot be reached the
+  // picker simply stays on "Auto" and the server default is used.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!isLoaded || !isSignedIn) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await apiFetch("/v1/models");
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!cancelled) {
+          const list = Array.isArray(data?.data) ? data.data : [];
+          setModels(list);
+          // A stored model that is no longer offered silently falls back to Auto.
+          const stored = localStorage.getItem(MODEL_KEY);
+          if (
+            stored &&
+            list.length > 0 &&
+            !list.some((entry) => entry.id === stored)
+          ) {
+            setSelectedModel("");
+            localStorage.removeItem(MODEL_KEY);
+          }
+        }
+      } catch {
+        // Non-fatal: the default model is always available.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn, apiFetch]);
+
+  const handleModelChange = useCallback((value) => {
+    setSelectedModel(value);
+    if (value) localStorage.setItem(MODEL_KEY, value);
+    else localStorage.removeItem(MODEL_KEY);
+  }, []);
+
+  // Debounce the sidebar filter so typing costs one request, not one per key.
+  useEffect(() => {
+    const cleaned = searchTerm.trim();
+    if (cleaned === lastSearchRef.current) return undefined;
+    const timer = setTimeout(() => {
+      lastSearchRef.current = cleaned;
+      searchConversations(cleaned);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm, searchConversations]);
+
+  // Keep the newest message in view only while the user is already at the
+  // bottom, so reading earlier turns is never interrupted by a stream.
+  useEffect(() => {
+    if (stickToBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, loading]);
+
+  const handleMessagesScroll = useCallback(() => {
+    const element = messagesContainerRef.current;
+    if (!element) return;
+    const distance =
+      element.scrollHeight - element.scrollTop - element.clientHeight;
+    stickToBottomRef.current = distance < 140;
+    setShowJumpToLatest(distance > 280);
+  }, []);
+
+  const scrollToLatest = useCallback(() => {
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   // ---------------------------------------------------------------- actions
   const handleFileSelect = useCallback(
@@ -231,13 +320,69 @@ export default function App() {
 
     if (!message.trim()) return;
     setInput("");
-    sendMessage(message);
-  }, [input, loading, file, sendMessage, editImage, clearAttachment]);
+    stickToBottomRef.current = true;
+    sendMessage(message, selectedModel);
+  }, [input, loading, file, sendMessage, editImage, clearAttachment, selectedModel]);
 
   const handleSuggestion = useCallback((text) => {
     setInput(text);
     textareaRef.current?.focus();
   }, []);
+
+  const handleAppendText = useCallback((text) => {
+    setInput((previous) =>
+      previous.trim() ? `${previous.trimEnd()} ${text}` : text
+    );
+    textareaRef.current?.focus();
+  }, []);
+
+  const handleEditMessage = useCallback(
+    (messageId, text) => {
+      if (!messageId) return;
+      stickToBottomRef.current = true;
+      editMessage(messageId, text, selectedModel);
+    },
+    [editMessage, selectedModel]
+  );
+
+  const handleRegenerate = useCallback(() => {
+    stickToBottomRef.current = true;
+    regenerate(selectedModel);
+  }, [regenerate, selectedModel]);
+
+  const handleFeedback = useCallback(
+    async (messageId, feedback, previous = null) => {
+      if (!conversationId) return;
+      updateMessage(messageId, { feedback });
+      try {
+        const response = await apiFetch(
+          `/api/chat/conversations/${conversationId}/messages/${messageId}/feedback`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ feedback }),
+          }
+        );
+        if (!response.ok) throw new Error(await readErrorMessage(response));
+      } catch (error) {
+        updateMessage(messageId, { feedback: previous });
+        notify("error", error.message || "Could not save your feedback.");
+      }
+    },
+    [apiFetch, conversationId, notify, updateMessage]
+  );
+
+  const handlePin = useCallback(
+    async (id, pinned) => {
+      try {
+        await setPinned(id, pinned);
+        notify("success", pinned ? "Conversation pinned" : "Conversation unpinned");
+      } catch (error) {
+        notify("error", error.message || "Could not update the conversation.");
+      }
+    },
+    [setPinned, notify]
+  );
 
   const handleSelectConversation = useCallback(
     (id) => {
@@ -332,10 +477,13 @@ export default function App() {
             onNewChat={startNewChat}
             onSelect={handleSelectConversation}
             onRename={handleRename}
+            onSetPinned={handlePin}
             onDelete={(conversation) =>
               setConfirmAction({ type: "delete", conversation })
             }
             onClearAll={() => setConfirmAction({ type: "clear" })}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
             version={APP_VERSION}
           />
 
@@ -361,7 +509,20 @@ export default function App() {
                     {currentConversation ? currentConversation.title : "NexusAI Workspace"}
                   </div>
                   <div className="chat-badge-row">
-                    <span className="model-badge">✦ {formatModelName(model)}</span>
+                    <select
+                      className="model-picker"
+                      value={selectedModel}
+                      onChange={(event) => handleModelChange(event.target.value)}
+                      title="Model used for new messages"
+                      aria-label="Model used for new messages"
+                    >
+                      <option value="">Auto</option>
+                      {models.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {formatModelName(entry.id)}
+                        </option>
+                      ))}
+                    </select>
                     <span className="engine-status">Active</span>
                   </div>
                 </div>
@@ -419,11 +580,26 @@ export default function App() {
               copiedId={copiedId}
               onCopy={handleCopy}
               onSuggestion={handleSuggestion}
-              onRegenerate={regenerate}
+              onRegenerate={handleRegenerate}
+              onEdit={handleEditMessage}
+              onFeedback={handleFeedback}
               loading={loading}
               canRegenerate={Boolean(conversationId)}
               endRef={messagesEndRef}
+              containerRef={messagesContainerRef}
+              onScroll={handleMessagesScroll}
             />
+
+            {showJumpToLatest ? (
+              <button
+                className="jump-to-latest"
+                onClick={scrollToLatest}
+                type="button"
+                title="Scroll to the latest message"
+              >
+                ↓ Latest
+              </button>
+            ) : null}
 
             <Composer
               value={input}
@@ -435,6 +611,7 @@ export default function App() {
               file={file}
               onFileSelect={handleFileSelect}
               onFileClear={handleFileClear}
+              onAppendText={handleAppendText}
             />
           </main>
 
@@ -444,6 +621,9 @@ export default function App() {
             theme={theme}
             onToggleTheme={toggleTheme}
             model={model}
+            models={models}
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
             version={APP_VERSION}
           />
 

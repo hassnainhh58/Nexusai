@@ -5,6 +5,13 @@ FastAPI backend with streaming chat, tool use (calculator, live web search),
 and multi-user conversation history stored in SQLite.
 
 - **Streaming answers** over Server-Sent Events, with stop / regenerate.
+- **Chat history tools**: search titles *and* message contents, pin important
+  chats to the top, rename, export, and delete.
+- **Edit and resend** any earlier question: the old answer and later turns are
+  replaced by a new response. Assistant replies can be rated with thumbs
+  up/down; ratings are stored per message.
+- **Model picker** in the header (fed by `/v1/models`) and **voice input** using
+  the browser's Web Speech API, with a graceful fallback when unsupported.
 - **Attachments**: upload a `.pdf`/`.docx`/`.txt` to ask about its contents, or a
   PNG/JPEG/WEBP together with an edit prompt and get the image changed by an
   image-to-image model (Nano Banana / Gemini image).
@@ -142,13 +149,15 @@ streamed.
 | `GET` | `/v1/models` | Allowlisted models (authenticated) |
 | `POST` | `/api/chat` | Streaming chat |
 | `POST` | `/api/chat/conversations` | Create an empty conversation |
-| `GET` | `/api/chat/conversations?limit=&offset=` | Paginated conversation list |
+| `GET` | `/api/chat/conversations?limit=&offset=&q=` | Paginated list; `q` searches titles and messages |
 | `GET` | `/api/chat/conversations/{id}` | Conversation with messages |
-| `PATCH` | `/api/chat/conversations/{id}` | Rename a conversation |
+| `PATCH` | `/api/chat/conversations/{id}` | Rename and/or pin (`{"title": …}` / `{"pinned": true}`) |
 | `DELETE` | `/api/chat/conversations/{id}` | Delete one conversation |
 | `DELETE` | `/api/chat/conversations` | Delete the caller's conversations |
+| `PATCH` | `/api/chat/conversations/{id}/messages/{message_id}/feedback` | Rate an assistant reply (`up`, `down`, or `null`) |
 | `GET` | `/api/chat/conversations/{id}/export` | Export as Markdown |
 | `POST` | `/api/files/upload` | Extract text from `.pdf`, `.docx` or `.txt` |
+| `POST` | `/api/images/edit` | Edit an attached PNG/JPEG/WEBP with a prompt |
 
 Every `/api/*` and `/v1/*` route requires
 `Authorization: Bearer <clerk-session-token>`. Conversations are scoped to the
@@ -161,18 +170,21 @@ the `X-Conversation-ID` header:
 
 ```
 event: meta
-data: {"model":"x-ai/grok-4.3"}
+data: {"model":"x-ai/grok-4.3","user_message_id":41}
 
 event: token
 data: {"text":"Hello"}
 
 event: done
-data: {"conversation_id":42,"model":"x-ai/grok-4.3"}
+data: {"conversation_id":42,"model":"x-ai/grok-4.3","message_id":42}
 ```
 
 An `error` event reports an upstream failure. Errors are never persisted as
 assistant messages. Send `{"conversation_id": 42, "regenerate": true}` to
-replace the trailing assistant reply instead of appending a new turn.
+replace the trailing assistant reply instead of appending a new turn, or
+`{"conversation_id": 42, "edit_message_id": 41, "message": "new question"}` to
+delete that question (and everything after it) and answer the edited text
+instead. `message` has no application-level length limit.
 
 ## Development commands
 

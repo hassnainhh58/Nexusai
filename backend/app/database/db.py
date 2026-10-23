@@ -97,10 +97,37 @@ def _migration_002_user_id(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migration_003_pin_and_feedback(conn: sqlite3.Connection) -> None:
+    """Adds conversation pinning and per-message feedback."""
+    conversation_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(conversations);")
+    }
+    if "pinned" not in conversation_columns:
+        conn.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_user_pinned "
+            "ON conversations(user_id, pinned DESC, updated_at DESC);"
+        )
+
+    message_columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages);")}
+    if "feedback" not in message_columns:
+        conn.execute("ALTER TABLE messages ADD COLUMN feedback TEXT;")
+
+
 MIGRATIONS: list[tuple[int, Any]] = [
     (1, _migration_001_initial),
     (2, _migration_002_user_id),
+    (3, _migration_003_pin_and_feedback),
 ]
+
+
+def _like_pattern(query: str | None) -> str | None:
+    """Builds a safe ``LIKE`` pattern (wildcards in user input are escaped)."""
+    cleaned = (query or "").strip()
+    if not cleaned:
+        return None
+    escaped = cleaned.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def init_db() -> None:
@@ -151,6 +178,34 @@ def update_conversation_title(conversation_id: int, title: str, user_id: str) ->
         return cursor.rowcount > 0
 
 
+def update_conversation_pinned(conversation_id: int, pinned: bool, user_id: str) -> bool:
+    """Pins or unpins a conversation without changing its position in time."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE conversations
+            SET pinned = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (1 if pinned else 0, conversation_id, user_id),
+        )
+        return cursor.rowcount > 0
+
+
+def get_conversation_meta(conversation_id: int, user_id: str) -> dict[str, Any] | None:
+    """Returns the editable metadata of a conversation owned by user_id."""
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT id, title, pinned, created_at, updated_at
+            FROM conversations
+            WHERE id = ? AND user_id = ?
+            """,
+            (conversation_id, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def add_message(conversation_id: int, role: str, content: str) -> int:
     """Adds a message to a conversation and updates its timestamp."""
     with get_db() as conn:
@@ -179,19 +234,46 @@ def get_conversations(
     user_id: str,
     limit: int = 50,
     offset: int = 0,
+    query: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Returns a page of the user's conversations, most recent first."""
+    """Returns a page of the user's conversations, pinned first.
+
+    A non-empty ``query`` matches the title or the content of any message, so
+    the sidebar search finds a conversation by what was discussed, not only by
+    its generated title.
+    """
+    pattern = _like_pattern(query)
     with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, title, user_id, created_at, updated_at
-            FROM conversations
-            WHERE user_id = ?
-            ORDER BY updated_at DESC, id DESC
-            LIMIT ? OFFSET ?
-            """,
-            (user_id, limit, offset),
-        ).fetchall()
+        if pattern is None:
+            rows = conn.execute(
+                """
+                SELECT id, title, user_id, pinned, created_at, updated_at
+                FROM conversations
+                WHERE user_id = ?
+                ORDER BY pinned DESC, updated_at DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (user_id, limit, offset),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT c.id, c.title, c.user_id, c.pinned, c.created_at, c.updated_at
+                FROM conversations c
+                WHERE c.user_id = ?
+                  AND (
+                    c.title LIKE ? ESCAPE '\\'
+                    OR EXISTS (
+                        SELECT 1 FROM messages m
+                        WHERE m.conversation_id = c.id
+                          AND m.content LIKE ? ESCAPE '\\'
+                    )
+                  )
+                ORDER BY c.pinned DESC, c.updated_at DESC, c.id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (user_id, pattern, pattern, limit, offset),
+            ).fetchall()
         return [dict(row) for row in rows]
 
 
@@ -202,7 +284,7 @@ def get_messages(conversation_id: int, user_id: str) -> list[dict[str, Any]]:
             return []
         rows = conn.execute(
             """
-            SELECT id, conversation_id, role, content, created_at
+            SELECT id, conversation_id, role, content, feedback, created_at
             FROM messages
             WHERE conversation_id = ?
             ORDER BY id ASC
@@ -267,6 +349,55 @@ def delete_message(message_id: int, conversation_id: int, user_id: str) -> bool:
         cursor = conn.execute(
             "DELETE FROM messages WHERE id = ? AND conversation_id = ?",
             (message_id, conversation_id),
+        )
+        return cursor.rowcount > 0
+
+
+def delete_messages_from(conversation_id: int, message_id: int, user_id: str) -> bool:
+    """Deletes a user message and everything that followed it.
+
+    Used when a message is edited: the old question, the answer it received and
+    every later turn are removed before the edited question is answered again,
+    which keeps the stored transcript a single linear branch.
+    """
+    with get_db() as conn:
+        if not _owns(conn, conversation_id, user_id):
+            return False
+        row = conn.execute(
+            "SELECT role FROM messages WHERE id = ? AND conversation_id = ?",
+            (message_id, conversation_id),
+        ).fetchone()
+        if row is None or row["role"] != "user":
+            return False
+
+        conn.execute(
+            "DELETE FROM messages WHERE conversation_id = ? AND id >= ?",
+            (conversation_id, message_id),
+        )
+        conn.execute(
+            "UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (conversation_id,),
+        )
+        return True
+
+
+def set_message_feedback(
+    conversation_id: int,
+    message_id: int,
+    user_id: str,
+    feedback: str | None,
+) -> bool:
+    """Sets (or clears) the thumbs rating of an assistant message."""
+    with get_db() as conn:
+        if not _owns(conn, conversation_id, user_id):
+            return False
+        cursor = conn.execute(
+            """
+            UPDATE messages
+            SET feedback = ?
+            WHERE id = ? AND conversation_id = ? AND role = 'assistant'
+            """,
+            (feedback, message_id, conversation_id),
         )
         return cursor.rowcount > 0
 

@@ -24,18 +24,23 @@ from ..database.db import (
     delete_all_conversations,
     delete_conversation,
     delete_message,
+    delete_messages_from,
     export_conversation_markdown,
+    get_conversation_meta,
     get_conversation_title,
     get_conversations,
     get_messages,
     get_recent_messages,
+    set_message_feedback,
+    update_conversation_pinned,
     update_conversation_title,
 )
 from ..models.chat import (
     ChatRequest,
     ConversationDetailResponse,
     ConversationSummary,
-    ConversationTitleRequest,
+    ConversationUpdateRequest,
+    FeedbackRequest,
     MessageItem,
 )
 from ..services.chat_service import build_message_history, derive_title, stream_chat
@@ -85,10 +90,19 @@ async def new_conversation(
 async def conversations(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(
+        default=None,
+        max_length=200,
+        description="Search conversation titles and message contents.",
+    ),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Returns a page of the user's conversations, most recent first."""
-    return await run_in_threadpool(get_conversations, current_user.id, limit, offset)
+    """Returns a page of the user's conversations, pinned first.
+
+    ``q`` searches titles and every message, so a chat can be found by what was
+    discussed even when its generated title is unrelated.
+    """
+    return await run_in_threadpool(get_conversations, current_user.id, limit, offset, q)
 
 
 # ==========================================
@@ -121,33 +135,81 @@ async def conversation(
 @router.patch("/conversations/{conversation_id}")
 async def edit_conversation(
     conversation_id: int,
-    request: ConversationTitleRequest,
+    request: ConversationUpdateRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Renames an existing conversation."""
+    """Renames and/or pins an existing conversation."""
+    meta = await run_in_threadpool(get_conversation_meta, conversation_id, current_user.id)
+    if meta is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+
+    title = meta["title"]
+    if request.title is not None:
+        cleaned_title = request.title.strip()
+        if not cleaned_title:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Conversation title cannot be empty",
+            )
+        updated = await run_in_threadpool(
+            update_conversation_title, conversation_id, cleaned_title, current_user.id
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Could not update conversation title",
+            )
+        title = cleaned_title
+
+    pinned = bool(meta["pinned"])
+    if request.pinned is not None:
+        updated = await run_in_threadpool(
+            update_conversation_pinned, conversation_id, request.pinned, current_user.id
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Could not update the conversation",
+            )
+        pinned = request.pinned
+
+    return {"id": conversation_id, "title": title, "pinned": pinned}
+
+
+# ==========================================
+# MESSAGE FEEDBACK
+# ==========================================
+@router.patch("/conversations/{conversation_id}/messages/{message_id}/feedback")
+async def rate_message(
+    conversation_id: int,
+    message_id: int,
+    request: FeedbackRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Stores the user's thumbs up/down rating for an assistant reply."""
     if not await run_in_threadpool(conversation_exists, conversation_id, current_user.id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
 
-    cleaned_title = request.title.strip()
-    if not cleaned_title:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Conversation title cannot be empty",
-        )
-
     updated = await run_in_threadpool(
-        update_conversation_title, conversation_id, cleaned_title, current_user.id
+        set_message_feedback,
+        conversation_id,
+        message_id,
+        current_user.id,
+        request.feedback,
     )
     if not updated:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Could not update conversation title",
+            detail="Message not found or is not an assistant reply",
         )
 
-    return {"id": conversation_id, "title": cleaned_title}
+    return {"id": message_id, "feedback": request.feedback}
 
 
 # ==========================================
@@ -240,6 +302,35 @@ async def chat(
             detail=("Unsupported model. Allowed models: " + ", ".join(allowed_model_names())),
         )
 
+    # Editing re-opens an earlier turn: the old question, its answer and every
+    # later turn are removed before the edited question is answered again.
+    if payload.edit_message_id is not None:
+        if payload.conversation_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="conversation_id is required to edit a message",
+            )
+        if not await run_in_threadpool(
+            conversation_exists, payload.conversation_id, current_user.id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found",
+            )
+        edited = await run_in_threadpool(
+            delete_messages_from,
+            payload.conversation_id,
+            payload.edit_message_id,
+            current_user.id,
+        )
+        if not edited:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found or is not editable",
+            )
+
+    user_message_id: int | None = None
+
     if payload.regenerate:
         # Answer the last user message again. The trailing assistant reply is
         # removed first, so the stored transcript never contains duplicates.
@@ -275,6 +366,7 @@ async def chat(
 
         clean_message = recent_rows[-1]["content"]
         clean_message, _ = fit_message_to_context(clean_message, settings.context_char_budget)
+        user_message_id = recent_rows[-1]["id"]
         message_history = build_message_history(
             fit_history_to_context(recent_rows[:-1], settings.context_char_budget)
         )
@@ -302,6 +394,16 @@ async def chat(
             fit_history_to_context(recent_rows, settings.context_char_budget)
         )
 
+        # Editing the first question renames the conversation, so the sidebar
+        # does not keep a title derived from text that no longer exists.
+        if payload.edit_message_id is not None and not recent_rows:
+            await run_in_threadpool(
+                update_conversation_title,
+                conversation_id,
+                derive_title(clean_message),
+                current_user.id,
+            )
+
         # Messages are not rejected for being long: when the composed prompt
         # exceeds the model context, the excerpts most relevant to the question
         # are kept so the reply is still grounded in the attachment.
@@ -313,11 +415,14 @@ async def chat(
                 len(clean_message),
             )
 
-        await run_in_threadpool(add_message, conversation_id, "user", clean_message)
+        user_message_id = await run_in_threadpool(
+            add_message, conversation_id, "user", clean_message
+        )
 
     async def generate():
         collected: list[str] = []
         model_used: str | None = None
+        assistant_message_id: int | None = None
         chunk_count = 0
         persisted = False
 
@@ -329,7 +434,10 @@ async def chat(
             ):
                 if event.type == "meta":
                     model_used = event.model
-                    yield _sse("meta", {"model": event.model})
+                    yield _sse(
+                        "meta",
+                        {"model": event.model, "user_message_id": user_message_id},
+                    )
                     continue
 
                 collected.append(event.text)
@@ -345,7 +453,9 @@ async def chat(
 
             assistant_text = "".join(collected).strip()
             if assistant_text:
-                await run_in_threadpool(add_message, conversation_id, "assistant", assistant_text)
+                assistant_message_id = await run_in_threadpool(
+                    add_message, conversation_id, "assistant", assistant_text
+                )
                 persisted = True
         except Exception as exc:
             # Headers are already flushed, so the failure is reported as an
@@ -370,7 +480,11 @@ async def chat(
 
         yield _sse(
             "done",
-            {"conversation_id": conversation_id, "model": model_used or ""},
+            {
+                "conversation_id": conversation_id,
+                "model": model_used or "",
+                "message_id": assistant_message_id,
+            },
         )
 
     return StreamingResponse(

@@ -1,8 +1,9 @@
 import logging
-import os
 
 from pydantic_ai import RunContext
 from tavily import TavilyClient
+
+from ..core.config import get_settings
 
 logger = logging.getLogger("nexusai.tools.web_search")
 
@@ -13,7 +14,9 @@ _last_api_key: str | None = None
 
 def _get_client() -> TavilyClient | None:
     global _tavily_client, _last_api_key
-    api_key = os.getenv("TAVILY_API_KEY", "").strip()
+    # Read through Settings so the value comes from backend/.env as well as the
+    # process environment (pydantic-settings does not export .env to os.environ).
+    api_key = get_settings().tavily_api_key.strip()
     if not api_key:
         return None
 

@@ -1,7 +1,19 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const MAX_HEIGHT = 220;
 
+const SpeechRecognitionCtor =
+  typeof window !== "undefined"
+    ? window.SpeechRecognition || window.webkitSpeechRecognition
+    : null;
+
+const MIC_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+    <rect x="9" y="2" width="6" height="12" rx="3" />
+    <path d="M5 10a7 7 0 0 0 14 0" />
+    <line x1="12" y1="19" x2="12" y2="22" />
+  </svg>
+);
 const ATTACH_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
     <circle cx="12" cy="12" r="10" />
@@ -27,8 +39,11 @@ export default function Composer({
   file,
   onFileSelect,
   onFileClear,
+  onAppendText,
 }) {
   const fileInputRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const [listening, setListening] = useState(false);
 
   // Grow the textarea with its content, like ChatGPT, up to a limit.
   useEffect(() => {
@@ -37,6 +52,49 @@ export default function Composer({
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, MAX_HEIGHT)}px`;
   }, [value, textareaRef]);
+
+  // Stop an in-flight dictation when the composer unmounts.
+  useEffect(
+    () => () => {
+      recognitionRef.current?.stop?.();
+    },
+    []
+  );
+
+  const toggleListening = () => {
+    if (!SpeechRecognitionCtor || loading) return;
+    if (listening) {
+      recognitionRef.current?.stop?.();
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = navigator.language || "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        if (event.results[index].isFinal) {
+          transcript += event.results[index][0].transcript;
+        }
+      }
+      const text = transcript.trim();
+      if (!text) return;
+      if (onAppendText) onAppendText(text);
+      else onChange(`${value}${value ? " " : ""}${text}`);
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    setListening(true);
+    recognition.start();
+  };
 
   const handleKeyDown = (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -60,11 +118,11 @@ export default function Composer({
   const canSend =
     file?.kind === "image" ? Boolean(value.trim()) : Boolean(value.trim()) || Boolean(file);
 
-  let placeholder = "Ask NexusAI anything... (research, code, math, logic)";
+  let placeholder = "Ask anything — research, writing, code, math, planning…";
   if (file?.kind === "image") {
     placeholder = "Describe the edit you want, e.g. 'make the background a beach at sunset'";
   } else if (file) {
-    placeholder = "Ask about this document... (Enter to send, Shift + Enter for new line)";
+    placeholder = "Ask about this document… (Enter to send, Shift + Enter for new line)";
   }
 
   return (
@@ -130,6 +188,20 @@ export default function Composer({
           rows={1}
           aria-label="Message NexusAI"
         />
+
+        {SpeechRecognitionCtor ? (
+          <button
+            className={`mic-button${listening ? " is-listening" : ""}`}
+            onClick={toggleListening}
+            disabled={loading}
+            title={listening ? "Stop dictation" : "Dictate a message"}
+            aria-label={listening ? "Stop dictation" : "Dictate a message"}
+            aria-pressed={listening}
+            type="button"
+          >
+            {MIC_ICON}
+          </button>
+        ) : null}
 
         {loading ? (
           <button

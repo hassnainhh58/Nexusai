@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { formatModelName } from "../lib/format.js";
+import { formatModelName, formatRelativeTime } from "../lib/format.js";
 import CodeBlock from "./CodeBlock.jsx";
 
 // Very long user messages (large pastes or attachments) are collapsed in the
@@ -12,28 +12,40 @@ const USER_PREVIEW_CHARS = 2000;
 
 const SUGGESTIONS = [
   {
-    icon: "⚡",
-    title: "Capabilities",
-    prompt: "What can you help me with?",
-    description: "What can you help me with across engineering & research?",
+    icon: "🔍",
+    title: "Research",
+    prompt: "What are the most important recent developments in artificial intelligence?",
+    description: "Find and summarize the latest developments in AI.",
   },
   {
-    icon: "🔍",
-    title: "Live Search",
-    prompt: "What is the latest version of Python?",
-    description: "What is the latest version of Python and its key features?",
+    icon: "💻",
+    title: "Code",
+    prompt: "Write a Python script that renames every file in a folder by date.",
+    description: "Build, debug or explain code in any language.",
+  },
+  {
+    icon: "✍️",
+    title: "Writing",
+    prompt: "Draft a concise, professional email asking a client to reschedule a meeting.",
+    description: "Draft, edit, summarize or translate any text.",
+  },
+  {
+    icon: "📊",
+    title: "Analysis",
+    prompt: "Compare SQL and NoSQL databases for a real-time analytics product.",
+    description: "Break down trade-offs, data and decisions.",
   },
   {
     icon: "🧮",
-    title: "Calculator",
-    prompt: "What is 125 * 48?",
-    description: "Calculate 125 * 48 with step-by-step arithmetic.",
+    title: "Math",
+    prompt: "Calculate the compound interest on $12,500 at 6.5% for 8 years.",
+    description: "Exact calculations, step by step.",
   },
   {
-    icon: "💡",
-    title: "Concepts",
-    prompt: "Explain Python variables simply.",
-    description: "Explain Python variables and memory management simply.",
+    icon: "🧭",
+    title: "Planning",
+    prompt: "Plan a focused 30-day learning path for becoming a backend developer.",
+    description: "Turn a goal into a practical plan.",
   },
 ];
 
@@ -65,13 +77,31 @@ const MessageTurn = memo(function MessageTurn({
   copiedId,
   onCopy,
   onRegenerate,
+  onEdit,
+  onFeedback,
   canRegenerate,
   isStreaming,
 }) {
   const messageId = item.id ? `msg-${item.id}` : `msg-${index}`;
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.content);
   const isLongUserMessage =
     item.role === "user" && item.content.length > USER_PREVIEW_CHARS;
+  const timestamp = formatRelativeTime(item.created_at);
+  const canEdit = Boolean(item.id) && !item.image && !isStreaming;
+
+  const submitEdit = () => {
+    const next = draft.trim();
+    if (!next || isStreaming) return;
+    setEditing(false);
+    onEdit?.(item.id, next);
+  };
+
+  const cancelEdit = () => {
+    setDraft(item.content);
+    setEditing(false);
+  };
 
   const markdownComponents = useMemo(
     () => ({
@@ -135,35 +165,94 @@ const MessageTurn = memo(function MessageTurn({
         <div className="user-message-container">
           <div className="user-message-header">
             <span className="user-badge">You</span>
-            <CopyButton
-              copied={copiedId === messageId}
-              label="Copy"
-              onClick={() => onCopy(item.content, messageId)}
-            />
-          </div>
-          <div className="user-message-text">
-            {item.image ? (
-              <img
-                className="message-image message-source-image"
-                src={item.image}
-                alt="Attached image"
+            <div className="message-header-actions">
+              {timestamp ? (
+                <time className="message-timestamp" title={item.created_at}>
+                  {timestamp}
+                </time>
+              ) : null}
+              <CopyButton
+                copied={copiedId === messageId}
+                label="Copy"
+                onClick={() => onCopy(item.content, messageId)}
               />
-            ) : null}
-            {isLongUserMessage && !expanded
-              ? `${item.content.slice(0, USER_PREVIEW_CHARS)}…`
-              : item.content}
+              {canEdit ? (
+                <button
+                  className="message-action-btn message-inline-action"
+                  onClick={() => {
+                    setDraft(item.content);
+                    setEditing(true);
+                  }}
+                  title="Edit this message and answer it again"
+                  type="button"
+                >
+                  ✏ Edit
+                </button>
+              ) : null}
+            </div>
           </div>
-          {isLongUserMessage ? (
-            <button
-              type="button"
-              className="message-action-btn message-expand-btn"
-              onClick={() => setExpanded((value) => !value)}
-            >
-              {expanded
-                ? "Show less"
-                : `Show full message (${item.content.length.toLocaleString()} characters)`}
-            </button>
-          ) : null}
+
+          {editing ? (
+            <div className="message-edit-form">
+              <textarea
+                className="message-edit-textarea"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") cancelEdit();
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    submitEdit();
+                  }
+                }}
+                rows={Math.min(12, Math.max(3, Math.ceil(draft.length / 90)))}
+                autoFocus
+                aria-label="Edit message"
+              />
+              <div className="message-edit-actions">
+                <button
+                  className="message-action-btn"
+                  onClick={submitEdit}
+                  disabled={!draft.trim() || isStreaming}
+                  type="button"
+                >
+                  Save &amp; submit
+                </button>
+                <button
+                  className="message-action-btn"
+                  onClick={cancelEdit}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="user-message-text">
+                {item.image ? (
+                  <img
+                    className="message-image message-source-image"
+                    src={item.image}
+                    alt="Attached image"
+                  />
+                ) : null}
+                {isLongUserMessage && !expanded
+                  ? `${item.content.slice(0, USER_PREVIEW_CHARS)}…`
+                  : item.content}
+              </div>
+              {isLongUserMessage ? (
+                <button
+                  type="button"
+                  className="message-action-btn message-expand-btn"
+                  onClick={() => setExpanded((value) => !value)}
+                >
+                  {expanded
+                    ? "Show less"
+                    : `Show full message (${item.content.length.toLocaleString()} characters)`}
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     );
@@ -183,6 +272,11 @@ const MessageTurn = memo(function MessageTurn({
             </span>
           </div>
           {item.stopped && <span className="message-state-badge">Stopped</span>}
+          {timestamp ? (
+            <time className="message-timestamp" title={item.created_at}>
+              {timestamp}
+            </time>
+          ) : null}
           {item.content && (
             <CopyButton
               copied={copiedId === messageId}
@@ -229,17 +323,56 @@ const MessageTurn = memo(function MessageTurn({
           )}
         </div>
 
-        {canRegenerate && item.content && !item.error && (
+        {!item.error && item.content && (canRegenerate || item.id) && (
           <div className="assistant-message-actions">
-            <button
-              type="button"
-              className="message-action-btn"
-              onClick={onRegenerate}
-              disabled={isStreaming}
-              title="Generate a new answer for this question"
-            >
-              ↻ Regenerate
-            </button>
+            {canRegenerate ? (
+              <button
+                type="button"
+                className="message-action-btn"
+                onClick={onRegenerate}
+                disabled={isStreaming}
+                title="Generate a new answer for this question"
+              >
+                ↻ Regenerate
+              </button>
+            ) : null}
+
+            {item.id && !isStreaming ? (
+              <div className="message-feedback" role="group" aria-label="Rate this answer">
+                <button
+                  type="button"
+                  className={`feedback-button${item.feedback === "up" ? " active" : ""}`}
+                  onClick={() =>
+                    onFeedback?.(
+                      item.id,
+                      item.feedback === "up" ? null : "up",
+                      item.feedback ?? null
+                    )
+                  }
+                  aria-pressed={item.feedback === "up"}
+                  title="Helpful"
+                  aria-label="Mark this answer as helpful"
+                >
+                  👍
+                </button>
+                <button
+                  type="button"
+                  className={`feedback-button${item.feedback === "down" ? " active" : ""}`}
+                  onClick={() =>
+                    onFeedback?.(
+                      item.id,
+                      item.feedback === "down" ? null : "down",
+                      item.feedback ?? null
+                    )
+                  }
+                  aria-pressed={item.feedback === "down"}
+                  title="Not helpful"
+                  aria-label="Mark this answer as not helpful"
+                >
+                  👎
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -256,8 +389,9 @@ function WelcomeScreen({ onSuggestion }) {
 
       <h1 className="welcome-heading">Welcome to NexusAI</h1>
       <p className="welcome-subheading">
-        Your professional AI assistant for research, logic, calculations, code
-        development, and complex problem-solving.
+        Ask anything — research, writing, code, math, analysis, planning and
+        everyday questions. Attach a document to work with it, or dictate your
+        message with the microphone.
       </p>
 
       <div className="suggestion-grid">
@@ -286,13 +420,17 @@ export default function MessageList({
   onCopy,
   onSuggestion,
   onRegenerate,
+  onEdit,
+  onFeedback,
   loading,
   canRegenerate,
   endRef,
+  containerRef,
+  onScroll,
 }) {
   if (messages.length === 0) {
     return (
-      <div className="messages-container">
+      <div className="messages-container" ref={containerRef} onScroll={onScroll}>
         <WelcomeScreen onSuggestion={onSuggestion} />
       </div>
     );
@@ -307,6 +445,8 @@ export default function MessageList({
       aria-live="polite"
       aria-busy={loading}
       aria-label="Conversation"
+      ref={containerRef}
+      onScroll={onScroll}
     >
       <div className="messages-feed">
         {messages.map((item, index) => (
@@ -318,6 +458,8 @@ export default function MessageList({
             copiedId={copiedId}
             onCopy={onCopy}
             onRegenerate={onRegenerate}
+            onEdit={onEdit}
+            onFeedback={onFeedback}
             canRegenerate={Boolean(canRegenerate) && index === lastIndex}
             isStreaming={loading}
           />

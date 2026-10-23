@@ -8,6 +8,19 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Conversation search across titles and message contents (`?q=`), with a
+  debounced search box in the sidebar.
+- Pin/unpin conversations; pinned chats sort first and are marked in the list.
+- Edit and resend any earlier user message: the stale answer and later turns
+  are removed before the new question is answered.
+- Thumbs up/down feedback on assistant replies, stored per message and shown
+  after reload.
+- Model picker in the header and settings, driven by the authenticated
+  `/v1/models` allowlist.
+- Voice input in the composer using the Web Speech API (hidden when the
+  browser does not support it).
+- Relative timestamps, a "jump to latest" control, and automatic scrolling
+  that pauses while you read earlier messages.
 - Image editing: attach a PNG/JPEG/WEBP and describe the change; the backend
   sends the picture to an image-to-image model (`IMAGE_MODEL`) and stores the
   result in the conversation. Requires provider credits for the image model.
@@ -18,6 +31,11 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The assistant is now a general-purpose assistant for any topic (research,
+  writing, coding, math, analysis, planning, translation, everyday questions)
+  and receives the real current date on every turn, so relative dates and
+  "latest" questions are resolved correctly and current facts go through web
+  search instead of stale model knowledge.
 - Chat messages are no longer capped at 15,000 characters: the full text is
   sent. When a message exceeds the model's context window, the excerpts most
   relevant to the question are kept (instead of an arbitrary prefix) and the
@@ -26,6 +44,11 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Live web search now actually activates when `TAVILY_API_KEY` is set in
+  `backend/.env`: the tool reads the central Settings object instead of only
+  process environment variables, which previously left search unconfigured.
+- Conversation and message timestamps are serialised as UTC with an offset, so
+  relative times ("just now", "2h ago") render correctly in the browser.
 - Request validation failures (HTTP 422) now name the offending field and the
   rule that failed (without echoing the submitted content) and are logged with
   the request id.

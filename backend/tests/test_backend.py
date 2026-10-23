@@ -236,6 +236,10 @@ def test_create_and_list_conversations(client):
     assert conversation_id in ids
     # The owner is not exposed in the summary payload.
     assert "user_id" not in response.json()[0]
+    # Timestamps carry a UTC offset so the browser renders relative times
+    # correctly (SQLite stores naive UTC).
+    updated_at = response.json()[0]["updated_at"]
+    assert updated_at.endswith("Z") or updated_at.endswith("+00:00")
 
 
 def test_get_conversation_detail(client):
@@ -330,6 +334,52 @@ def test_conversation_list_supports_pagination(client):
     assert len(page) == 2
 
 
+def test_conversation_search_matches_titles_and_message_contents(client):
+    from app.database.db import add_message
+
+    by_title = client.post("/api/chat/conversations").json()["id"]
+    client.patch(f"/api/chat/conversations/{by_title}", json={"title": "Quarterly planning notes"})
+
+    by_content = client.post("/api/chat/conversations").json()["id"]
+    client.patch(f"/api/chat/conversations/{by_content}", json={"title": "Release notes"})
+    add_message(by_content, "user", "the deployment pipeline uses blue-green releases")
+
+    titles = client.get("/api/chat/conversations", params={"q": "quarterly"}).json()
+    assert [item["id"] for item in titles] == [by_title]
+
+    contents = client.get("/api/chat/conversations", params={"q": "blue-green"}).json()
+    assert [item["id"] for item in contents] == [by_content]
+
+    # LIKE wildcards in the query are escaped, not interpreted.
+    assert client.get("/api/chat/conversations", params={"q": "%"}).json() == []
+
+
+def test_conversation_search_is_scoped_to_the_owner(client):
+    conversation_id = client.post("/api/chat/conversations").json()["id"]
+    client.patch(f"/api/chat/conversations/{conversation_id}", json={"title": "Secret roadmap"})
+
+    set_user("other-user")
+    assert client.get("/api/chat/conversations", params={"q": "secret"}).json() == []
+
+
+def test_pinning_keeps_a_conversation_at_the_top(client):
+    older = client.post("/api/chat/conversations").json()["id"]
+    newer = client.post("/api/chat/conversations").json()["id"]
+
+    pinned = client.patch(f"/api/chat/conversations/{older}", json={"pinned": True})
+    assert pinned.status_code == 200
+    assert pinned.json()["pinned"] is True
+
+    ids = [item["id"] for item in client.get("/api/chat/conversations").json()]
+    assert ids[0] == older
+
+    assert (
+        client.patch(f"/api/chat/conversations/{older}", json={"pinned": False}).status_code == 200
+    )
+    ids = [item["id"] for item in client.get("/api/chat/conversations").json()]
+    assert ids[0] == newer
+
+
 # ==========================================
 # CHAT
 # ==========================================
@@ -366,11 +416,14 @@ def test_chat_streams_sse_and_persists_the_exchange(client, monkeypatch):
 
     conversation_id = int(response.headers["X-Conversation-ID"])
     events = parse_sse(response.text)
-    assert events[0] == ("meta", {"model": "test-model"})
+    assert events[0][0] == "meta"
+    assert events[0][1]["model"] == "test-model"
+    assert events[0][1]["user_message_id"] > 0
     assert "".join(data["text"] for name, data in events if name == "token") == "Hello world"
     assert events[-1][0] == "done"
     assert events[-1][1]["conversation_id"] == conversation_id
     assert events[-1][1]["model"] == "test-model"
+    assert events[-1][1]["message_id"] > 0
 
     detail = client.get(f"/api/chat/conversations/{conversation_id}").json()
     assert [message["role"] for message in detail["messages"]] == ["user", "assistant"]
@@ -420,6 +473,120 @@ def test_chat_regenerates_instead_of_appending(client, monkeypatch):
 def test_regenerate_requires_a_conversation(client):
     response = client.post("/api/chat", json={"regenerate": True})
     assert response.status_code == 400
+
+
+def test_message_feedback_is_stored_and_clearable(client, monkeypatch):
+    async def fake_stream(*_args, **_kwargs):
+        yield ChatStreamEvent(type="meta", model="test-model")
+        yield ChatStreamEvent(type="token", text="The answer")
+
+    monkeypatch.setattr(chat_module, "stream_chat", fake_stream)
+
+    response = client.post("/api/chat", json={"message": "rate me"})
+    conversation_id = int(response.headers["X-Conversation-ID"])
+    detail = client.get(f"/api/chat/conversations/{conversation_id}").json()
+
+    assistant = next(item for item in detail["messages"] if item["role"] == "assistant")
+    user = next(item for item in detail["messages"] if item["role"] == "user")
+    feedback_url = f"/api/chat/conversations/{conversation_id}/messages/{assistant['id']}/feedback"
+
+    rated = client.patch(feedback_url, json={"feedback": "up"})
+    assert rated.status_code == 200
+    detail = client.get(f"/api/chat/conversations/{conversation_id}").json()
+    assert detail["messages"][1]["feedback"] == "up"
+
+    cleared = client.patch(feedback_url, json={"feedback": None})
+    assert cleared.status_code == 200
+    detail = client.get(f"/api/chat/conversations/{conversation_id}").json()
+    assert detail["messages"][1]["feedback"] is None
+
+    user_feedback_url = f"/api/chat/conversations/{conversation_id}/messages/{user['id']}/feedback"
+    assert client.patch(user_feedback_url, json={"feedback": "up"}).status_code == 404
+    assert client.patch(feedback_url, json={"feedback": "sideways"}).status_code == 422
+
+
+def test_editing_a_message_replaces_it_and_every_later_turn(client, monkeypatch):
+    calls = []
+
+    async def fake_stream(message, **_kwargs):
+        calls.append(message)
+        yield ChatStreamEvent(type="meta", model="test-model")
+        yield ChatStreamEvent(type="token", text=f"answer:{message}")
+
+    monkeypatch.setattr(chat_module, "stream_chat", fake_stream)
+
+    first = client.post("/api/chat", json={"message": "first question"})
+    conversation_id = int(first.headers["X-Conversation-ID"])
+    client.post(
+        "/api/chat",
+        json={"message": "second question", "conversation_id": conversation_id},
+    )
+
+    detail = client.get(f"/api/chat/conversations/{conversation_id}").json()
+    assert [item["role"] for item in detail["messages"]] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    first_user_id = detail["messages"][0]["id"]
+
+    edited = client.post(
+        "/api/chat",
+        json={
+            "conversation_id": conversation_id,
+            "edit_message_id": first_user_id,
+            "message": "edited question",
+        },
+    )
+    assert edited.status_code == 200
+
+    detail = client.get(f"/api/chat/conversations/{conversation_id}").json()
+    assert [item["role"] for item in detail["messages"]] == ["user", "assistant"]
+    assert detail["messages"][0]["content"] == "edited question"
+    assert detail["messages"][1]["content"] == "answer:edited question"
+    assert detail["title"] == "edited question"
+    assert calls == ["first question", "second question", "edited question"]
+
+
+def test_editing_requires_an_owned_user_message(client, monkeypatch):
+    async def fake_stream(*_args, **_kwargs):
+        yield ChatStreamEvent(type="meta", model="test-model")
+        yield ChatStreamEvent(type="token", text="answer")
+
+    monkeypatch.setattr(chat_module, "stream_chat", fake_stream)
+
+    response = client.post("/api/chat", json={"message": "hello"})
+    conversation_id = int(response.headers["X-Conversation-ID"])
+    detail = client.get(f"/api/chat/conversations/{conversation_id}").json()
+    assistant_id = next(item["id"] for item in detail["messages"] if item["role"] == "assistant")
+
+    # A conversation is required, and only user messages can be edited.
+    assert client.post("/api/chat", json={"edit_message_id": 1, "message": "x"}).status_code == 400
+    assert (
+        client.post(
+            "/api/chat",
+            json={
+                "conversation_id": conversation_id,
+                "edit_message_id": assistant_id,
+                "message": "x",
+            },
+        ).status_code
+        == 404
+    )
+
+    set_user("other-user")
+    assert (
+        client.post(
+            "/api/chat",
+            json={
+                "conversation_id": conversation_id,
+                "edit_message_id": detail["messages"][0]["id"],
+                "message": "x",
+            },
+        ).status_code
+        == 404
+    )
 
 
 def test_chat_enforces_the_rate_limit(client, monkeypatch):
@@ -621,6 +788,20 @@ def test_calculator_rejects_code_execution(expression):
 
     result = evaluate_expression(expression)
     assert "not allowed" in result or "Only direct safe function calls" in result
+
+
+def test_web_search_reads_the_tavily_key_from_settings(monkeypatch):
+    from app.tools import web_search as web_search_module
+
+    monkeypatch.setattr(web_search_module, "_tavily_client", None)
+    monkeypatch.setattr(web_search_module, "_last_api_key", None)
+    monkeypatch.setattr(get_settings(), "tavily_api_key", "test-tavily-key")
+
+    # Creating a client does not perform a network request.
+    assert web_search_module._get_client() is not None
+
+    monkeypatch.setattr(get_settings(), "tavily_api_key", "")
+    assert web_search_module._get_client() is None
 
 
 # ==========================================

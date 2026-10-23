@@ -8,6 +8,9 @@ export default function SettingsPanel({
   theme,
   onToggleTheme,
   model,
+  models = [],
+  selectedModel,
+  onModelChange,
   version,
 }) {
   const closeButtonRef = useRef(null);
@@ -78,8 +81,28 @@ export default function SettingsPanel({
             <div className="settings-section-title">AI Engine</div>
             <div className="settings-row">
               <div>
-                <strong>Active Model</strong>
-                <span>Current intelligence backbone</span>
+                <strong>Model</strong>
+                <span>Used for new messages. “Auto” follows the server default.</span>
+              </div>
+              <select
+                className="settings-select"
+                value={selectedModel || ""}
+                onChange={(event) => onModelChange?.(event.target.value)}
+                aria-label="Model used for new messages"
+              >
+                <option value="">Auto (server default)</option>
+                {models.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {formatModelName(entry.id)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <strong>Last answer by</strong>
+                <span>Shown when a fallback model steps in</span>
               </div>
               <div className="settings-badge-value">{formatModelName(model)}</div>
             </div>
@@ -87,17 +110,41 @@ export default function SettingsPanel({
             <div className="settings-row">
               <div>
                 <strong>Live Web Search</strong>
-                <span>Real-time web research integration</span>
+                <span>Real-time research when a question needs current facts</span>
               </div>
-              <div className="settings-status-enabled">Active</div>
+              <div className="settings-status-enabled">Available</div>
             </div>
 
             <div className="settings-row">
               <div>
-                <strong>Mathematical Calculator</strong>
-                <span>Precise evaluation tool</span>
+                <strong>Calculator</strong>
+                <span>Exact arithmetic, conversions and percentages</span>
               </div>
-              <div className="settings-status-enabled">Active</div>
+              <div className="settings-status-enabled">Available</div>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-section-title">Keyboard Shortcuts</div>
+            <div className="settings-shortcut-row">
+              <span>New chat</span>
+              <kbd>Ctrl / ⌘ + K</kbd>
+            </div>
+            <div className="settings-shortcut-row">
+              <span>Send message</span>
+              <kbd>Enter</kbd>
+            </div>
+            <div className="settings-shortcut-row">
+              <span>New line</span>
+              <kbd>Shift + Enter</kbd>
+            </div>
+            <div className="settings-shortcut-row">
+              <span>Save an edited message</span>
+              <kbd>Ctrl / ⌘ + Enter</kbd>
+            </div>
+            <div className="settings-shortcut-row">
+              <span>Close panels</span>
+              <kbd>Esc</kbd>
             </div>
           </div>
 

@@ -22,6 +22,21 @@ function dropTrailingAssistants(messages) {
   return next;
 }
 
+function patchMessageById(messages, id, patch) {
+  return messages.map((item) => (item.id === id ? { ...item, ...patch } : item));
+}
+
+function setLastRoleId(messages, role, id) {
+  const next = [...messages];
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    if (next[index].role === role) {
+      next[index] = { ...next[index], id };
+      break;
+    }
+  }
+  return next;
+}
+
 function finalizeStopped(messages, text) {
   const next = [...messages];
   const index = next.length - 1;
@@ -83,37 +98,50 @@ export function useChat({
   );
 
   const run = useCallback(
-    async ({ message = "", regenerate = false } = {}) => {
+    async ({ message = "", regenerate = false, editMessageId = null, model = "" } = {}) => {
       if (loading) return;
       const targetId = conversationRef.current;
       if (regenerate && !targetId) return;
+      if (editMessageId && !targetId) return;
 
       let streamedText = "";
       let modelUsed = "";
 
-      setMessages((previous) =>
-        regenerate
-          ? [...dropTrailingAssistants(previous), { role: "assistant", content: "" }]
-          : [
-              ...previous,
-              { role: "user", content: message },
-              { role: "assistant", content: "" },
-            ]
-      );
+      setMessages((previous) => {
+        const now = new Date().toISOString();
+        const optimisticUser = { role: "user", content: message, created_at: now };
+        const placeholder = {
+          role: "assistant",
+          content: "",
+          created_at: now,
+        };
+
+        if (editMessageId) {
+          const index = previous.findIndex((item) => item.id === editMessageId);
+          const base = index >= 0 ? previous.slice(0, index) : previous;
+          return [...base, optimisticUser, placeholder];
+        }
+        if (regenerate) {
+          return [...dropTrailingAssistants(previous), placeholder];
+        }
+        return [...previous, optimisticUser, placeholder];
+      });
       setLoading(true);
 
       const controller = new AbortController();
       abortRef.current = controller;
 
       try {
+        const payload = regenerate
+          ? { conversation_id: targetId, regenerate: true }
+          : { message, conversation_id: targetId };
+        if (editMessageId) payload.edit_message_id = editMessageId;
+        if (model) payload.model = model;
+
         const response = await apiFetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            regenerate
-              ? { conversation_id: targetId, regenerate: true }
-              : { message, conversation_id: targetId }
-          ),
+          body: JSON.stringify(payload),
           signal: controller.signal,
         });
 
@@ -133,6 +161,11 @@ export function useChat({
             if (event === "meta") {
               modelUsed = data.model || "";
               setModel(modelUsed);
+              if (data.user_message_id) {
+                setMessages((previous) =>
+                  setLastRoleId(previous, "user", data.user_message_id)
+                );
+              }
               return;
             }
             if (event === "token") {
@@ -140,6 +173,14 @@ export function useChat({
               setMessages((previous) =>
                 replaceLastAssistant(previous, { content: streamedText })
               );
+              return;
+            }
+            if (event === "done") {
+              if (data.message_id) {
+                setMessages((previous) =>
+                  setLastRoleId(previous, "assistant", data.message_id)
+                );
+              }
               return;
             }
             if (event === "error") {
@@ -183,7 +224,17 @@ export function useChat({
     [apiFetch, loading, notify, onConversationCreated, onConversationTouched, setConversation]
   );
 
-  const sendMessage = useCallback((message) => run({ message }), [run]);
+  const sendMessage = useCallback(
+    (message, model = "") => run({ message, model }),
+    [run]
+  );
+
+  /** Edits an earlier user message and answers it again in place. */
+  const editMessage = useCallback(
+    (messageId, message, model = "") =>
+      run({ message, editMessageId: messageId, model }),
+    [run]
+  );
 
   /**
    * Edits an uploaded image and appends the exchange to the transcript.
@@ -199,8 +250,13 @@ export function useChat({
 
       setMessages((previous) => [
         ...previous,
-        { role: "user", content: prompt, image: previewUrl },
-        { role: "assistant", content: "" },
+        {
+          role: "user",
+          content: prompt,
+          image: previewUrl,
+          created_at: new Date().toISOString(),
+        },
+        { role: "assistant", content: "", created_at: new Date().toISOString() },
       ]);
       setLoading(true);
 
@@ -246,7 +302,12 @@ export function useChat({
     [apiFetch, loading, notify, onConversationCreated, onConversationTouched, setConversation]
   );
 
-  const regenerate = useCallback(() => run({ regenerate: true }), [run]);
+  const regenerate = useCallback((model = "") => run({ regenerate: true, model }), [run]);
+
+  /** Applies a local patch to a persisted message (e.g. feedback). */
+  const updateMessage = useCallback((messageId, patch) => {
+    setMessages((previous) => patchMessageById(previous, messageId, patch));
+  }, []);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -258,8 +319,10 @@ export function useChat({
     model,
     loading,
     sendMessage,
+    editMessage,
     editImage,
     regenerate,
+    updateMessage,
     stop,
     setConversation,
     load,

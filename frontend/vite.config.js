@@ -4,6 +4,9 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Components use the automatic JSX runtime (no `import React` in every file),
+  // including when Vitest transforms them.
+  esbuild: { jsx: 'automatic', jsxImportSource: 'react' },
   server: {
     // Proxy API calls to the FastAPI backend so the browser sees a same-origin
     // request. This avoids CORS entirely, even when Vite picks a different port.
