@@ -1,16 +1,33 @@
-# React + Vite
+# NexusAI frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + Vite frontend for the NexusAI workspace.
 
-Currently, two official plugins are available:
+See the [project README](../README.md) for setup and troubleshooting.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Commands
 
-## React Compiler
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the dev server on <http://localhost:5173> |
+| `npm run build` | Production bundle into `dist/` |
+| `npm run preview` | Preview the production bundle |
+| `npm run lint` | oxlint |
+| `npm run test` | Vitest unit tests |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Structure
 
-## Expanding the Oxlint configuration
+- `src/App.jsx` — layout and orchestration
+- `src/components/` — sidebar, message list, composer, dialogs, error boundary
+- `src/hooks/` — chat streaming, conversation list, theme
+- `src/lib/` — API client (Clerk token + 401 retry), SSE parser, formatting
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+The backend streams Server-Sent Events (`meta` / `token` / `error` / `done`);
+`src/lib/sse.js` parses them and is covered by unit tests.
+
+## Environment
+
+Copy `.env.example` to `.env.local`:
+
+- `VITE_CLERK_PUBLISHABLE_KEY` — required, Clerk publishable key
+- `VITE_API_URL` — optional, absolute backend URL. Leave empty to use the Vite
+  dev proxy (`/api` -> `http://127.0.0.1:8000`), which avoids CORS entirely.
