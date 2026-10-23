@@ -84,15 +84,18 @@ def _safe_eval_node(node: ast.AST) -> Any:
         right = _safe_eval_node(node.right)
 
         # Protection against massive memory denial-of-service via huge exponents
-        if op_type is ast.Pow:
-            if isinstance(right, (int, float)) and abs(right) > MAX_POWER_EXPONENT:
-                raise ValueError(f"Exponent exceeds safety limit of {MAX_POWER_EXPONENT}")
+        if (
+            op_type is ast.Pow
+            and isinstance(right, (int, float))
+            and abs(right) > MAX_POWER_EXPONENT
+        ):
+            raise ValueError(f"Exponent exceeds safety limit of {MAX_POWER_EXPONENT}")
 
         return SAFE_OPERATORS[op_type](left, right)
 
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name):
-            raise ValueError("Only direct safe function calls are allowed.")
+            raise TypeError("Only direct safe function calls are allowed.")
 
         func_name = node.func.id
         if func_name not in SAFE_FUNCTIONS:

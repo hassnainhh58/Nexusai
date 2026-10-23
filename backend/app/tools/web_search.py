@@ -1,5 +1,6 @@
 import logging
 import os
+
 from pydantic_ai import RunContext
 from tavily import TavilyClient
 
@@ -74,10 +75,7 @@ def web_search(
             published_date = result.get("published_date", "Recent")
 
             results.append(
-                f"Title: {title}\n"
-                f"URL: {url}\n"
-                f"Published: {published_date}\n"
-                f"Content: {content}"
+                f"Title: {title}\nURL: {url}\nPublished: {published_date}\nContent: {content}"
             )
 
         if not results:

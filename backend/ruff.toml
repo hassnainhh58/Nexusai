@@ -1,0 +1,11 @@
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "ASYNC", "LOG"]
+# B008: FastAPI's `Depends(...)` / `File(...)` in argument defaults is the
+# documented pattern, not a mutable-default bug.
+ignore = ["B008"]
+
+[lint.per-file-ignores]
+"tests/*" = ["E402"]

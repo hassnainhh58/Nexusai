@@ -1,35 +1,39 @@
 import logging
-import os
-from pathlib import Path
-from typing import Optional
 
-from dotenv import load_dotenv
+import httpx2
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
+from ..core.config import get_settings
 from ..tools.calculator import calculate
 from ..tools.web_search import web_search
 
 logger = logging.getLogger("nexusai.agent")
 
-# Locate backend/.env reliably, regardless of the CMD working directory.
-BACKEND_DIR = Path(__file__).resolve().parents[2]
-ENV_FILE = BACKEND_DIR / ".env"
+_settings = get_settings()
 
-load_dotenv(ENV_FILE)
+default_model_name = _settings.llm_model
+fallback_model_names = _settings.fallback_models
 
-base_url = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-api_key = os.getenv("LLM_API_KEY", "")
-default_model_name = os.getenv("LLM_MODEL", "x-ai/grok-4.3")
 
-if not api_key:
-    logger.warning(f"LLM_API_KEY is not set in {ENV_FILE}. Agent queries may fail.")
+def allowed_model_names() -> list[str]:
+    """Models a client may request (primary + configured fallbacks)."""
+    return _settings.allowed_models
 
-# Shared provider instance connected to the configured upstream
+
+if not _settings.llm_api_key:
+    logger.warning("LLM_API_KEY is not set: agent queries will fail.")
+
+# Shared provider instance connected to the configured upstream. A bounded
+# timeout prevents a hung upstream call from holding a request (and a worker)
+# open indefinitely.
 provider = OpenAIProvider(
-    base_url=base_url,
-    api_key=api_key,
+    base_url=_settings.llm_base_url,
+    api_key=_settings.llm_api_key,
+    http_client=httpx2.AsyncClient(
+        timeout=httpx2.Timeout(_settings.llm_timeout_seconds, connect=10.0)
+    ),
 )
 
 INSTRUCTIONS = (
@@ -59,12 +63,18 @@ INSTRUCTIONS = (
 _agent_cache: dict[str, Agent] = {}
 
 
-def get_agent(model_override: Optional[str] = None) -> Agent:
+def get_agent(model_override: str | None = None) -> Agent:
     """
-    Returns an Agent configured with the specified model, or the default model.
-    Caches agent instances by model name to prevent redundant allocations.
+    Returns an Agent for an allowed model, or for the default model.
+
+    Unknown model names are rejected here as a second line of defence; the API
+    layer validates the request before this is reached. Because only the
+    configured allowlist can get through, the cache is bounded.
     """
     target_model = (model_override or default_model_name).strip()
+    if target_model not in allowed_model_names():
+        raise ValueError(f"Model '{target_model}' is not allowed")
+
     if target_model in _agent_cache:
         return _agent_cache[target_model]
 
