@@ -11,7 +11,7 @@ import Sidebar from "./components/Sidebar.jsx";
 import { useChat } from "./hooks/useChat.js";
 import { useConversations } from "./hooks/useConversations.js";
 import { useTheme } from "./hooks/useTheme.js";
-import { createApiClient, readErrorMessage } from "./lib/api.js";
+import { createApiClient, readErrorMessage, uploadFile } from "./lib/api.js";
 import { formatModelName } from "./lib/format.js";
 
 const APP_VERSION = "v1.1.0";
@@ -45,6 +45,7 @@ export default function App() {
   const restoredRef = useRef(false);
 
   const [input, setInput] = useState("");
+  const [file, setFile] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
@@ -112,6 +113,7 @@ export default function App() {
     resetChat();
     localStorage.removeItem(LAST_CONVERSATION_KEY);
     setInput("");
+    setFile(null);
     setSidebarOpen(false);
     setSettingsOpen(false);
     textareaRef.current?.focus();
@@ -160,12 +162,44 @@ export default function App() {
   }, [messages, loading]);
 
   // ---------------------------------------------------------------- actions
+  const handleFileSelect = useCallback(
+    async (picked) => {
+      try {
+        const info = await uploadFile(apiFetch, picked);
+        setFile(info);
+      } catch (error) {
+        notify("error", error.message || "Could not read the uploaded file.");
+      }
+    },
+    [apiFetch, notify]
+  );
+
+  const handleFileClear = useCallback(() => {
+    setFile(null);
+  }, []);
+
   const handleSend = useCallback(() => {
+    if (loading) return;
     const text = input.trim();
-    if (!text || loading) return;
+    let message = text;
+
+    if (file) {
+      // Attach the extracted document text to the turn, like a real file
+      // upload in a chat product. Keep the composed payload inside the
+      // backend's message limit.
+      message = text
+        ? `${text}\n\nAttached file: ${file.filename}\n${file.extracted_text}`
+        : `Attached file: ${file.filename}\n${file.extracted_text}`;
+      if (message.length > 15000) {
+        message = message.slice(0, 15000);
+      }
+      setFile(null);
+    }
+
+    if (!message.trim()) return;
     setInput("");
-    sendMessage(text);
-  }, [input, loading, sendMessage]);
+    sendMessage(message);
+  }, [input, loading, file, sendMessage]);
 
   const handleSuggestion = useCallback((text) => {
     setInput(text);
@@ -212,6 +246,7 @@ export default function App() {
     if (!action) return;
 
     try {
+      setFile(null);
       if (action.type === "delete") {
         await remove(action.conversation.id);
         if (conversationId === action.conversation.id) {
@@ -364,6 +399,9 @@ export default function App() {
               onStop={stop}
               loading={loading}
               textareaRef={textareaRef}
+              file={file}
+              onFileSelect={handleFileSelect}
+              onFileClear={handleFileClear}
             />
           </main>
 

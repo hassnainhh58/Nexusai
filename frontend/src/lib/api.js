@@ -14,6 +14,10 @@ export function createApiClient(getToken) {
   return async function apiFetch(path, options = {}) {
     const request = async (skipCache) => {
       const headers = new Headers(options.headers || {});
+      if (options.body instanceof FormData) {
+        // Let the browser set the multipart boundary when serialising FormData.
+        headers.delete("Content-Type");
+      }
       try {
         const token = await getToken({ skipCache });
         if (token) {
@@ -31,6 +35,23 @@ export function createApiClient(getToken) {
     }
     return response;
   };
+}
+
+/**
+ * Uploads a document to the backend, which validates its type and returns the
+ * extracted text. The caller composes that text into the next chat message.
+ */
+export async function uploadFile(apiFetch, file) {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await apiFetch("/api/files/upload", {
+    method: "POST",
+    body,
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.json();
 }
 
 /** Extracts a readable error message from a failed response. */

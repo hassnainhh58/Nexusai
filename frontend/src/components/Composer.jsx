@@ -1,6 +1,19 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 const MAX_HEIGHT = 220;
+
+const ATTACH_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </svg>
+);
+
+const DOC_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 8 8" />
+  </svg>
+);
 
 export default function Composer({
   value,
@@ -9,7 +22,12 @@ export default function Composer({
   onStop,
   loading,
   textareaRef,
+  file,
+  onFileSelect,
+  onFileClear,
 }) {
+  const fileInputRef = useRef(null);
+
   // Grow the textarea with its content, like ChatGPT, up to a limit.
   useEffect(() => {
     const element = textareaRef.current;
@@ -25,15 +43,80 @@ export default function Composer({
     }
   };
 
+  const handleAttachClick = () => {
+    if (loading) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event) => {
+    const picked = event.target.files?.[0];
+    if (picked) onFileSelect?.(picked);
+    // Allow picking the same file again later.
+    event.target.value = "";
+  };
+
+  const canSend = Boolean(value.trim()) || Boolean(file);
+
   return (
     <div className="input-wrapper">
-      <div className="input-area-card">
+      <div className={`input-area-card${file ? " has-attachment" : ""}`}>
+        {file ? (
+          <div className="attachment-row">
+            <button
+              className="attach-button"
+              onClick={handleAttachClick}
+              disabled={loading}
+              title="Attach a document"
+              aria-label="Attach a document"
+              type="button"
+            >
+              {ATTACH_ICON}
+            </button>
+            <span className="attachment-chip" title={file.filename}>
+              {DOC_ICON}
+              <span className="attachment-chip-name">{file.filename}</span>
+              <button
+                className="attachment-remove"
+                onClick={onFileClear}
+                aria-label={`Remove ${file.filename}`}
+                title="Remove attachment"
+                type="button"
+              >
+                ✕
+              </button>
+            </span>
+          </div>
+        ) : (
+          <button
+            className="attach-button"
+            onClick={handleAttachClick}
+            disabled={loading}
+            title="Attach a document"
+            aria-label="Attach a document"
+            type="button"
+          >
+            {ATTACH_ICON}
+          </button>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.txt"
+          onChange={handleFileChange}
+          hidden
+        />
+
         <textarea
           ref={textareaRef}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask NexusAI anything... (research, code, math, logic)"
+          placeholder={
+            file
+              ? "Ask about this document... (Enter to send, Shift + Enter for new line)"
+              : "Ask NexusAI anything... (research, code, math, logic)"
+          }
           rows={1}
           aria-label="Message NexusAI"
         />
@@ -52,7 +135,7 @@ export default function Composer({
           <button
             className="send-button"
             onClick={onSend}
-            disabled={!value.trim()}
+            disabled={!canSend}
             title="Send message (Enter)"
             aria-label="Send message"
             type="button"

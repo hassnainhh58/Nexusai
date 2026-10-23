@@ -1387,6 +1387,100 @@
   color: var(--text-subtle);
 }
 
+.attach-button {
+  align-self: flex-end;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.attach-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.attach-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.attach-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding-bottom: 2px;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(320px, 100%);
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-main);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.attachment-chip svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.attachment-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.attachment-remove:hover {
+  color: var(--text-primary);
+}
+
+.input-area-card.has-attachment {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.input-area-card.has-attachment textarea {
+  flex: none;
+}
+
+.input-area-card.has-attachment .send-button {
+  align-self: flex-end;
+}
+
+
 /* ==========================================
    SETTINGS MODAL
 ========================================== */

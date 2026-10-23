@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Document upload in the composer: attach a `.pdf`, `.docx` or `.txt` file, the
+  backend validates its type and extracts its text, and the extracted content
+  becomes part of the next chat turn (together with the typed question, when
+  present).
+
 ## [1.1.0] - 2026-10-23
 
 ### Added
