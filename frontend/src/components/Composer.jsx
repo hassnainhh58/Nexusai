@@ -27,7 +27,6 @@ export default function Composer({
   file,
   onFileSelect,
   onFileClear,
-  maxLength = 15000,
 }) {
   const fileInputRef = useRef(null);
 
@@ -58,10 +57,8 @@ export default function Composer({
     event.target.value = "";
   };
 
-  const overLimit = value.length > maxLength;
   const canSend =
-    !overLimit &&
-    (file?.kind === "image" ? Boolean(value.trim()) : Boolean(value.trim()) || Boolean(file));
+    file?.kind === "image" ? Boolean(value.trim()) : Boolean(value.trim()) || Boolean(file);
 
   let placeholder = "Ask NexusAI anything... (research, code, math, logic)";
   if (file?.kind === "image") {
@@ -165,15 +162,6 @@ export default function Composer({
         <span className="hint-pill">Press Enter ↵ to send</span>
         <span className="hint-divider">·</span>
         <span className="hint-pill">Shift + Enter for new line</span>
-        {value.length >= maxLength * 0.8 ? (
-          <span
-            className={`char-counter${overLimit ? " is-over" : ""}`}
-            aria-live="polite"
-            title={`Message limit: ${maxLength.toLocaleString()} characters`}
-          >
-            {value.length.toLocaleString()} / {maxLength.toLocaleString()}
-          </span>
-        ) : null}
       </div>
     </div>
   );

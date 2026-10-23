@@ -16,15 +16,19 @@ the project adheres to [Semantic Versioning](https://semver.org/).
   becomes part of the next chat turn (together with the typed question, when
   present).
 
+### Changed
+
+- Chat messages are no longer capped at 15,000 characters: the full text is
+  sent. When a message exceeds the model's context window, the excerpts most
+  relevant to the question are kept (instead of an arbitrary prefix) and the
+  transcript notes it; very long user messages are collapsed in the UI. A 32 MB
+  request-body safety valve protects the process from abuse.
+
 ### Fixed
 
 - Request validation failures (HTTP 422) now name the offending field and the
   rule that failed (without echoing the submitted content) and are logged with
-  the request id. The composer also warns before sending a message over the
-  15,000 character limit instead of letting the request fail.
-- The composer shows a live character counter as you approach the 15,000
-  character message limit and disables sending once it is exceeded, so the
-  actual limit is visible instead of only surfacing as an error.
+  the request id.
 
 ## [1.1.0] - 2026-10-23
 

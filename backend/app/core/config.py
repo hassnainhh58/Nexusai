@@ -80,6 +80,14 @@ class Settings(BaseSettings):
     max_history_turns: int = Field(default=10, gt=0)
     conversations_page_size: int = Field(default=50, gt=0, le=200)
 
+    # Chat messages have no application-level character limit. The only bound
+    # is the model's context window, so the budget below decides how much text
+    # is sent; larger input keeps its most relevant excerpts.
+    model_context_tokens: int = Field(default=1_000_000, gt=0)
+    # HTTP safety valve (protects the process from absurd bodies). Far above any
+    # message a person or a 10 MB upload can produce.
+    max_request_body_mb: int = Field(default=32, gt=0)
+
     # ------------------------------------------------------------------
     # Derived helpers
     # ------------------------------------------------------------------
@@ -108,6 +116,20 @@ class Settings(BaseSettings):
     @property
     def max_upload_size_bytes(self) -> int:
         return self.max_upload_size_mb * 1024 * 1024
+
+    @property
+    def max_request_body_bytes(self) -> int:
+        return self.max_request_body_mb * 1024 * 1024
+
+    @property
+    def context_char_budget(self) -> int:
+        """Characters allowed for one message or for the conversation history.
+
+        About 2.5 characters per token is the pessimistic case (dense code), so
+        0.8 characters per context token leaves the prompt well inside the
+        window even when the message and the history are both at the budget.
+        """
+        return int(self.model_context_tokens * 0.8)
 
     # ------------------------------------------------------------------
     # Validation

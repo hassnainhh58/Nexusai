@@ -1,9 +1,14 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { formatModelName } from "../lib/format.js";
 import CodeBlock from "./CodeBlock.jsx";
+
+// Very long user messages (large pastes or attachments) are collapsed in the
+// transcript so the conversation stays responsive; the model still receives the
+// full text.
+const USER_PREVIEW_CHARS = 2000;
 
 const SUGGESTIONS = [
   {
@@ -64,6 +69,9 @@ const MessageTurn = memo(function MessageTurn({
   isStreaming,
 }) {
   const messageId = item.id ? `msg-${item.id}` : `msg-${index}`;
+  const [expanded, setExpanded] = useState(false);
+  const isLongUserMessage =
+    item.role === "user" && item.content.length > USER_PREVIEW_CHARS;
 
   const markdownComponents = useMemo(
     () => ({
@@ -141,8 +149,21 @@ const MessageTurn = memo(function MessageTurn({
                 alt="Attached image"
               />
             ) : null}
-            {item.content}
+            {isLongUserMessage && !expanded
+              ? `${item.content.slice(0, USER_PREVIEW_CHARS)}…`
+              : item.content}
           </div>
+          {isLongUserMessage ? (
+            <button
+              type="button"
+              className="message-action-btn message-expand-btn"
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded
+                ? "Show less"
+                : `Show full message (${item.content.length.toLocaleString()} characters)`}
+            </button>
+          ) : null}
         </div>
       </div>
     );

@@ -39,6 +39,7 @@ from ..models.chat import (
     MessageItem,
 )
 from ..services.chat_service import build_message_history, derive_title, stream_chat
+from ..services.context_budget import fit_history_to_context, fit_message_to_context
 
 logger = logging.getLogger("nexusai.api.chat")
 
@@ -273,7 +274,10 @@ async def chat(
             )
 
         clean_message = recent_rows[-1]["content"]
-        message_history = build_message_history(recent_rows[:-1])
+        clean_message, _ = fit_message_to_context(clean_message, settings.context_char_budget)
+        message_history = build_message_history(
+            fit_history_to_context(recent_rows[:-1], settings.context_char_budget)
+        )
     else:
         if payload.conversation_id is None:
             conversation_id = await run_in_threadpool(
@@ -287,14 +291,27 @@ async def chat(
                     detail="Conversation not found",
                 )
 
-        # Only the most recent turns are needed to build the model context.
+        # Only the most recent turns that fit the context window are used.
         recent_rows = await run_in_threadpool(
             get_recent_messages,
             conversation_id,
             current_user.id,
             settings.max_history_turns * 2,
         )
-        message_history = build_message_history(recent_rows)
+        message_history = build_message_history(
+            fit_history_to_context(recent_rows, settings.context_char_budget)
+        )
+
+        # Messages are not rejected for being long: when the composed prompt
+        # exceeds the model context, the excerpts most relevant to the question
+        # are kept so the reply is still grounded in the attachment.
+        clean_message, trimmed = fit_message_to_context(clean_message, settings.context_char_budget)
+        if trimmed:
+            logger.warning(
+                "Message reduced to fit the model context (%d -> %d characters)",
+                len(payload.message),
+                len(clean_message),
+            )
 
         await run_in_threadpool(add_message, conversation_id, "user", clean_message)
 

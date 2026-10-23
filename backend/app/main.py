@@ -106,6 +106,25 @@ async def request_context_middleware(request: Request, call_next):
     start_time = time.perf_counter()
     response: Response | None = None
     try:
+        # Reject absurd payloads before buffering them. Chat messages have no
+        # character limit; this only protects the process from abuse.
+        declared_length = request.headers.get("content-length")
+        if (
+            declared_length
+            and declared_length.isdigit()
+            and int(declared_length) > settings.max_request_body_bytes
+        ):
+            response = JSONResponse(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                content={
+                    "detail": (
+                        "The request body is too large. The limit is "
+                        f"{settings.max_request_body_mb} MB."
+                    )
+                },
+            )
+            return response
+
         response = await call_next(request)
         return response
     finally:

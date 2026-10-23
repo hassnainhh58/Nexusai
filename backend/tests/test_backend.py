@@ -761,14 +761,13 @@ def test_image_edit_requires_authentication(anon_client):
 # REQUEST VALIDATION REPORTING
 # ==========================================
 def test_chat_validation_reports_the_field_without_echoing_content(client):
-    response = client.post("/api/chat", json={"message": "x" * 15001})
+    response = client.post("/api/chat", json={"message": "hello", "conversation_id": 0})
 
     assert response.status_code == 422
     detail = response.json()["detail"]
     assert isinstance(detail, list) and detail
-    assert detail[0]["field"] == "message"
-    assert "15000" in detail[0]["message"]
-    assert "x" * 50 not in response.text
+    assert detail[0]["field"] == "conversation_id"
+    assert "hello" not in response.text
 
 
 def test_chat_empty_message_reports_why_it_was_rejected(client):
@@ -780,11 +779,68 @@ def test_chat_empty_message_reports_why_it_was_rejected(client):
     assert "empty" in detail[0]["message"]
 
 
-def test_chat_request_accepts_the_full_message_limit():
-    from pydantic import ValidationError
-
+def test_chat_request_has_no_character_limit():
     from app.models.chat import ChatRequest
 
-    assert len(ChatRequest(message="x" * 15000).message) == 15000
-    with pytest.raises(ValidationError):
-        ChatRequest(message="x" * 15001)
+    long_message = "x" * 250_000
+
+    assert len(ChatRequest(message=long_message).message) == 250_000
+
+
+def test_short_messages_are_sent_unchanged():
+    from app.services.context_budget import fit_message_to_context
+
+    message = "Summarise this.\n\nAttached file: notes.txt\nA short body."
+
+    assert fit_message_to_context(message, 10_000) == (message, False)
+
+
+def test_long_attachments_keep_the_excerpts_relevant_to_the_question():
+    from app.services.context_budget import TRIM_NOTE, fit_message_to_context
+
+    body = "\n".join(
+        [
+            "Quarterly revenue grew in every region.",
+            "The deployment pipeline uses blue-green releases on Fridays.",
+            "Customer support response times improved after the new rota.",
+            "The Kubernetes cluster runs in three availability zones.",
+        ]
+        * 300
+    )
+    message = f"How are deployments handled?\n\nAttached file: handbook.txt\n{body}"
+
+    fitted, trimmed = fit_message_to_context(message, 12_000)
+
+    assert trimmed is True
+    assert len(fitted) <= 12_000
+    assert "How are deployments handled?" in fitted
+    assert "blue-green releases" in fitted
+    assert TRIM_NOTE in fitted
+
+
+def test_long_plain_messages_keep_the_opening_and_the_closing():
+    from app.services.context_budget import TRIM_NOTE, fit_message_to_context
+
+    message = "START " + ("filler " * 20_000) + " END"
+
+    fitted, trimmed = fit_message_to_context(message, 5_000)
+
+    assert trimmed is True
+    assert len(fitted) <= 5_000
+    assert fitted.startswith("START")
+    assert fitted.endswith("END")
+    assert TRIM_NOTE in fitted
+
+
+def test_history_is_trimmed_from_the_oldest_rows():
+    from app.services.context_budget import fit_history_to_context
+
+    rows = [
+        {"role": "user", "content": "a" * 600},
+        {"role": "assistant", "content": "b" * 600},
+        {"role": "user", "content": "c" * 100},
+    ]
+
+    kept = fit_history_to_context(rows, 1_200)
+
+    assert [row["content"][0] for row in kept] == ["b", "c"]

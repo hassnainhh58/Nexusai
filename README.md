@@ -8,6 +8,9 @@ and multi-user conversation history stored in SQLite.
 - **Attachments**: upload a `.pdf`/`.docx`/`.txt` to ask about its contents, or a
   PNG/JPEG/WEBP together with an edit prompt and get the image changed by an
   image-to-image model (Nano Banana / Gemini image).
+- **Long inputs**: chat messages have no character limit. When a message is
+  larger than the model's context window, the excerpts most relevant to the
+  question are sent instead of failing or cutting off the start of the text.
 - **Authentication by Clerk**, verified server-side against the instance JWKS.
   Authentication fails closed: no token means `401`, and every query is scoped
   to the signed-in user.

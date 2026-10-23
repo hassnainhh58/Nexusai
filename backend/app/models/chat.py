@@ -7,8 +7,11 @@ from pydantic import BaseModel, Field, model_validator
 class ChatRequest(BaseModel):
     message: str = Field(
         default="",
-        max_length=15000,
-        description="The user's query or prompt message.",
+        description=(
+            "The user's query or prompt message. There is no application-level "
+            "length limit: content larger than the model context is reduced to "
+            "the excerpts most relevant to the request."
+        ),
     )
     conversation_id: int | None = Field(
         None, ge=1, description="Optional ID of an existing conversation to continue."
