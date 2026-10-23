@@ -57,7 +57,15 @@ export default function Composer({
     event.target.value = "";
   };
 
-  const canSend = Boolean(value.trim()) || Boolean(file);
+  const canSend =
+    file?.kind === "image" ? Boolean(value.trim()) : Boolean(value.trim()) || Boolean(file);
+
+  let placeholder = "Ask NexusAI anything... (research, code, math, logic)";
+  if (file?.kind === "image") {
+    placeholder = "Describe the edit you want, e.g. 'make the background a beach at sunset'";
+  } else if (file) {
+    placeholder = "Ask about this document... (Enter to send, Shift + Enter for new line)";
+  }
 
   return (
     <div className="input-wrapper">
@@ -68,14 +76,18 @@ export default function Composer({
               className="attach-button"
               onClick={handleAttachClick}
               disabled={loading}
-              title="Attach a document"
-              aria-label="Attach a document"
+              title="Attach a document or image"
+              aria-label="Attach a document or image"
               type="button"
             >
               {ATTACH_ICON}
             </button>
             <span className="attachment-chip" title={file.filename}>
-              {DOC_ICON}
+              {file.kind === "image" && file.preview ? (
+                <img className="attachment-thumb" src={file.preview} alt="" />
+              ) : (
+                DOC_ICON
+              )}
               <span className="attachment-chip-name">{file.filename}</span>
               <button
                 className="attachment-remove"
@@ -93,8 +105,8 @@ export default function Composer({
             className="attach-button"
             onClick={handleAttachClick}
             disabled={loading}
-            title="Attach a document"
-            aria-label="Attach a document"
+            title="Attach a document or image"
+            aria-label="Attach a document or image"
             type="button"
           >
             {ATTACH_ICON}
@@ -104,7 +116,7 @@ export default function Composer({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.docx,.txt"
+          accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp"
           onChange={handleFileChange}
           hidden
         />
@@ -114,11 +126,7 @@ export default function Composer({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={
-            file
-              ? "Ask about this document... (Enter to send, Shift + Enter for new line)"
-              : "Ask NexusAI anything... (research, code, math, logic)"
-          }
+          placeholder={placeholder}
           rows={1}
           aria-label="Message NexusAI"
         />

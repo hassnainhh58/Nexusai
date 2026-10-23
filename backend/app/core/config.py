@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     llm_fallback_model: str = ""
     llm_timeout_seconds: float = Field(default=90.0, gt=0)
 
+    # Image editing goes through the provider's dedicated Image API. The
+    # uploaded picture is sent as an input reference, so the model edits it
+    # instead of generating an unrelated image.
+    image_model: str = "google/gemini-3.1-flash-image"
+    image_timeout_seconds: float = Field(default=180.0, gt=0)
+
     tavily_api_key: str = ""
 
     # ------------------------------------------------------------------

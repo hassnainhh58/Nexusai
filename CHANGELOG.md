@@ -8,6 +8,9 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Image editing: attach a PNG/JPEG/WEBP and describe the change; the backend
+  sends the picture to an image-to-image model (`IMAGE_MODEL`) and stores the
+  result in the conversation. Requires provider credits for the image model.
 - Document upload in the composer: attach a `.pdf`, `.docx` or `.txt` file, the
   backend validates its type and extracts its text, and the extracted content
   becomes part of the next chat turn (together with the typed question, when

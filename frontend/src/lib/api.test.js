@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createApiClient, uploadFile } from "./api.js";
+import { createApiClient, editImage, uploadFile } from "./api.js";
 
 function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
@@ -47,6 +47,46 @@ describe("uploadFile", () => {
     await expect(uploadFile(apiFetch, { name: "broken.pdf" })).rejects.toThrow(
       "The uploaded .pdf file does not look like a valid PDF document."
     );
+  });
+});
+
+describe("editImage", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        okResponse({
+          conversation_id: 12,
+          image: "data:image/png;base64,AAAA",
+          media_type: "image/png",
+          model: "test-image-model",
+        })
+      )
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("posts the image, the prompt and the conversation id", async () => {
+    const apiFetch = createApiClient(async () => "test-token");
+    const file = new Blob(["fake-png"], { type: "image/png" });
+
+    const result = await editImage(apiFetch, file, "make it blue", 12);
+
+    expect(result.image).toContain("data:image/png");
+    expect(result.conversation_id).toBe(12);
+
+    const [url, options] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain("/api/images/edit");
+    expect(options.method).toBe("POST");
+
+    const entries = [...options.body.entries()];
+    expect(entries.map(([key]) => key)).toEqual(["image", "prompt", "conversation_id"]);
+    expect(entries[1][1]).toBe("make it blue");
+    expect(entries[2][1]).toBe("12");
   });
 });
 

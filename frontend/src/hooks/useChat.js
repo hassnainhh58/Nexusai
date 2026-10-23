@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-import { readErrorMessage } from "../lib/api";
+import { editImage as requestImageEdit, readErrorMessage } from "../lib/api";
 import { consumeSseResponse } from "../lib/sse";
 
 export const PAGE_SIZE = 50;
@@ -185,6 +185,67 @@ export function useChat({
 
   const sendMessage = useCallback((message) => run({ message }), [run]);
 
+  /**
+   * Edits an uploaded image and appends the exchange to the transcript.
+   *
+   * The backend stores the edited picture (as a data URL inside markdown), so
+   * the result is restored with the conversation.
+   */
+  const editImage = useCallback(
+    async (file, prompt) => {
+      if (loading || !file) return;
+      const targetId = conversationRef.current;
+      const previewUrl = URL.createObjectURL(file);
+
+      setMessages((previous) => [
+        ...previous,
+        { role: "user", content: prompt, image: previewUrl },
+        { role: "assistant", content: "" },
+      ]);
+      setLoading(true);
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const result = await requestImageEdit(
+          apiFetch,
+          file,
+          prompt,
+          targetId,
+          controller.signal
+        );
+        const id = Number(result.conversation_id);
+        if (id && id !== targetId) {
+          setConversation(id);
+          onConversationCreated?.(id, prompt);
+        }
+        setModel(result.model || "");
+        setMessages((previous) =>
+          replaceLastAssistant(previous, {
+            content: `![Edited image](${result.image})`,
+            model: result.model,
+          })
+        );
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          setMessages((previous) => finalizeStopped(previous, ""));
+          return;
+        }
+        const failure = error?.message || "The image could not be edited.";
+        setMessages((previous) =>
+          replaceLastAssistant(previous, { content: "", error: failure })
+        );
+        notify?.("error", failure);
+      } finally {
+        abortRef.current = null;
+        setLoading(false);
+        onConversationTouched?.(conversationRef.current);
+      }
+    },
+    [apiFetch, loading, notify, onConversationCreated, onConversationTouched, setConversation]
+  );
+
   const regenerate = useCallback(() => run({ regenerate: true }), [run]);
 
   const stop = useCallback(() => {
@@ -197,6 +258,7 @@ export function useChat({
     model,
     loading,
     sendMessage,
+    editImage,
     regenerate,
     stop,
     setConversation,

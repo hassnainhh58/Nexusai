@@ -5,6 +5,9 @@ FastAPI backend with streaming chat, tool use (calculator, live web search),
 and multi-user conversation history stored in SQLite.
 
 - **Streaming answers** over Server-Sent Events, with stop / regenerate.
+- **Attachments**: upload a `.pdf`/`.docx`/`.txt` to ask about its contents, or a
+  PNG/JPEG/WEBP together with an edit prompt and get the image changed by an
+  image-to-image model (Nano Banana / Gemini image).
 - **Authentication by Clerk**, verified server-side against the instance JWKS.
   Authentication fails closed: no token means `401`, and every query is scoped
   to the signed-in user.
@@ -19,11 +22,11 @@ nexusai/
   backend/                       FastAPI service
     app/
       agents/assistant.py        pydantic-ai agent, provider, model allowlist
-      api/                       chat, files routers
+      api/                       chat, files and images routers
       core/                      config, auth, logging, rate limiting
       database/db.py             SQLite storage + migrations
       models/                    request/response schemas
-      services/                  streaming, history, file extraction
+      services/                  streaming, history, file extraction, image editing
       tools/                     calculator, Tavily web search
     scripts/                     one-off maintenance scripts
     tests/                       pytest suite (isolated temp database)

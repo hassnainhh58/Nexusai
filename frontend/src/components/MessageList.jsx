@@ -100,6 +100,16 @@ const MessageTurn = memo(function MessageTurn({
           </a>
         );
       },
+      img({ src, alt }) {
+        return (
+          <img
+            className="message-image generated-image"
+            src={src}
+            alt={alt || "Edited image"}
+            loading="lazy"
+          />
+        );
+      },
       table({ children }) {
         return (
           <div className="table-responsive-wrapper">
@@ -123,7 +133,16 @@ const MessageTurn = memo(function MessageTurn({
               onClick={() => onCopy(item.content, messageId)}
             />
           </div>
-          <div className="user-message-text">{item.content}</div>
+          <div className="user-message-text">
+            {item.image ? (
+              <img
+                className="message-image message-source-image"
+                src={item.image}
+                alt="Attached image"
+              />
+            ) : null}
+            {item.content}
+          </div>
         </div>
       </div>
     );

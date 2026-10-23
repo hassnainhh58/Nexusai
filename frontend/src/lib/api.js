@@ -54,6 +54,30 @@ export async function uploadFile(apiFetch, file) {
   return response.json();
 }
 
+/**
+ * Asks the backend to edit an uploaded image according to a prompt.
+ *
+ * The result is a data URL that can be shown directly and stored in the
+ * conversation transcript.
+ */
+export async function editImage(apiFetch, file, prompt, conversationId, signal) {
+  const body = new FormData();
+  body.append("image", file);
+  body.append("prompt", prompt);
+  if (conversationId) {
+    body.append("conversation_id", String(conversationId));
+  }
+  const response = await apiFetch("/api/images/edit", {
+    method: "POST",
+    body,
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.json();
+}
+
 /** Extracts a readable error message from a failed response. */
 export async function readErrorMessage(response) {
   try {

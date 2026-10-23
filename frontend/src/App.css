@@ -906,6 +906,32 @@
   text-align: left;
 }
 
+.message-image {
+  display: block;
+  max-width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.message-source-image {
+  max-height: 220px;
+  width: auto;
+  margin-bottom: 10px;
+}
+
+.generated-image {
+  margin: 4px 0 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.attachment-thumb {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
 /* Common Copy Button for User & Assistant */
 .copy-action-btn {
   display: inline-flex;

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from .agents.assistant import allowed_model_names, default_model_name, provider
 from .api.chat import router as chat_router
 from .api.files import router as files_router
+from .api.images import router as images_router
 from .core.auth import CurrentUser, get_current_user
 from .core.config import get_settings
 from .core.logging_config import (
@@ -166,6 +167,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(chat_router)
 app.include_router(files_router)
+app.include_router(images_router)
 
 
 # ==========================================

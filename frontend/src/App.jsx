@@ -17,6 +17,7 @@ import { formatModelName } from "./lib/format.js";
 const APP_VERSION = "v1.1.0";
 const LAST_CONVERSATION_KEY = "nexusai-last-conversation";
 const NOTIFICATION_TIMEOUT = 4000;
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 // Built outside the component so the ref is only dereferenced when a request
 // is actually made, never during render.
@@ -56,6 +57,16 @@ export default function App() {
     setNotification({ type, message });
   }, []);
 
+  // Releases the preview blob when an attachment is discarded.
+  const clearAttachment = useCallback(() => {
+    setFile((current) => {
+      if (current?.kind === "image" && current.preview) {
+        URL.revokeObjectURL(current.preview);
+      }
+      return null;
+    });
+  }, []);
+
   useEffect(() => {
     if (!notification) return undefined;
     const timer = setTimeout(() => setNotification(null), NOTIFICATION_TIMEOUT);
@@ -81,6 +92,7 @@ export default function App() {
     model,
     loading,
     sendMessage,
+    editImage,
     regenerate,
     stop,
     load: loadChat,
@@ -113,11 +125,11 @@ export default function App() {
     resetChat();
     localStorage.removeItem(LAST_CONVERSATION_KEY);
     setInput("");
-    setFile(null);
+    clearAttachment();
     setSidebarOpen(false);
     setSettingsOpen(false);
     textareaRef.current?.focus();
-  }, [loading, resetChat]);
+  }, [loading, resetChat, clearAttachment]);
 
   // Initial load: wait for Clerk, then restore the last conversation.
   useEffect(() => {
@@ -164,25 +176,48 @@ export default function App() {
   // ---------------------------------------------------------------- actions
   const handleFileSelect = useCallback(
     async (picked) => {
+      if (picked.type.startsWith("image/")) {
+        if (!IMAGE_TYPES.has(picked.type)) {
+          notify("error", "Unsupported image type. Use PNG, JPEG or WEBP.");
+          return;
+        }
+        clearAttachment();
+        setFile({
+          kind: "image",
+          file: picked,
+          filename: picked.name,
+          preview: URL.createObjectURL(picked),
+        });
+        return;
+      }
+
       try {
         const info = await uploadFile(apiFetch, picked);
-        setFile(info);
+        setFile({ kind: "document", ...info });
       } catch (error) {
         notify("error", error.message || "Could not read the uploaded file.");
       }
     },
-    [apiFetch, notify]
+    [apiFetch, notify, clearAttachment]
   );
 
-  const handleFileClear = useCallback(() => {
-    setFile(null);
-  }, []);
+  const handleFileClear = clearAttachment;
 
   const handleSend = useCallback(() => {
     if (loading) return;
     const text = input.trim();
-    let message = text;
 
+    // An image attachment means "edit this picture with the prompt".
+    if (file?.kind === "image") {
+      if (!text) return;
+      const imageFile = file.file;
+      clearAttachment();
+      setInput("");
+      editImage(imageFile, text);
+      return;
+    }
+
+    let message = text;
     if (file) {
       // Attach the extracted document text to the turn, like a real file
       // upload in a chat product. Keep the composed payload inside the
@@ -199,7 +234,7 @@ export default function App() {
     if (!message.trim()) return;
     setInput("");
     sendMessage(message);
-  }, [input, loading, file, sendMessage]);
+  }, [input, loading, file, sendMessage, editImage, clearAttachment]);
 
   const handleSuggestion = useCallback((text) => {
     setInput(text);
@@ -246,7 +281,7 @@ export default function App() {
     if (!action) return;
 
     try {
-      setFile(null);
+      clearAttachment();
       if (action.type === "delete") {
         await remove(action.conversation.id);
         if (conversationId === action.conversation.id) {
@@ -264,7 +299,7 @@ export default function App() {
     } catch (error) {
       notify("error", error.message || "The operation could not be completed.");
     }
-  }, [confirmAction, remove, conversationId, resetChat, clearAll, notify]);
+  }, [confirmAction, remove, conversationId, resetChat, clearAll, notify, clearAttachment]);
 
   const currentConversation = conversations.find(
     (conversation) => conversation.id === conversationId

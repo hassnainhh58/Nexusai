@@ -653,3 +653,105 @@ def test_upload_rejects_a_pdf_that_is_not_a_pdf(client):
 def test_upload_rejects_empty_files(client):
     response = client.post("/api/files/upload", files={"file": ("empty.txt", b"", "text/plain")})
     assert response.status_code == 400
+
+
+# ==========================================
+# IMAGE EDITING
+# ==========================================
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def _fake_edited_image():
+    from app.services.image_service import EditedImage
+
+    return EditedImage(
+        data_url="data:image/png;base64,ZmFrZQ==",
+        media_type="image/png",
+        model="test-image-model",
+    )
+
+
+def test_image_edit_returns_and_persists_the_result(client, monkeypatch):
+    from app.api import images as images_module
+
+    prompts = []
+
+    async def fake_edit(image_bytes, prompt):
+        prompts.append(prompt)
+        assert image_bytes.startswith(b"\x89PNG")
+        return _fake_edited_image()
+
+    monkeypatch.setattr(images_module, "edit_image", fake_edit)
+
+    response = client.post(
+        "/api/images/edit",
+        files={"image": ("photo.png", PNG_BYTES, "image/png")},
+        data={"prompt": "make the sky purple"},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["image"].startswith("data:image/png;base64,")
+    assert payload["model"] == "test-image-model"
+    assert prompts == ["make the sky purple"]
+
+    detail = client.get(f"/api/chat/conversations/{payload['conversation_id']}")
+    assert detail.status_code == 200
+    messages = detail.json()["messages"]
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert "make the sky purple" in messages[0]["content"]
+    assert "data:image/png;base64,ZmFrZQ==" in messages[1]["content"]
+
+
+def test_image_edit_requires_a_prompt(client):
+    response = client.post(
+        "/api/images/edit",
+        files={"image": ("photo.png", PNG_BYTES, "image/png")},
+        data={"prompt": "   "},
+    )
+    assert response.status_code == 400
+
+
+def test_image_edit_rejects_non_image_payloads(client):
+    response = client.post(
+        "/api/images/edit",
+        files={"image": ("notes.txt", b"this is not an image", "text/plain")},
+        data={"prompt": "edit this"},
+    )
+    assert response.status_code == 400
+
+
+def test_image_edit_rejects_empty_files(client):
+    response = client.post(
+        "/api/images/edit",
+        files={"image": ("empty.png", b"", "image/png")},
+        data={"prompt": "edit this"},
+    )
+    assert response.status_code == 400
+
+
+def test_image_edit_reports_missing_upstream_credits(client, monkeypatch):
+    from app.api import images as images_module
+    from app.services.image_service import ImageEditError
+
+    async def fake_edit(image_bytes, prompt):
+        raise ImageEditError("The image model requires credits.", status_code=402)
+
+    monkeypatch.setattr(images_module, "edit_image", fake_edit)
+
+    response = client.post(
+        "/api/images/edit",
+        files={"image": ("photo.png", PNG_BYTES, "image/png")},
+        data={"prompt": "edit this"},
+    )
+    assert response.status_code == 402
+    assert "credits" in response.json()["detail"].lower()
+
+
+def test_image_edit_requires_authentication(anon_client):
+    response = anon_client.post(
+        "/api/images/edit",
+        files={"image": ("photo.png", PNG_BYTES, "image/png")},
+        data={"prompt": "edit this"},
+    )
+    assert response.status_code == 401
