@@ -49,3 +49,19 @@ pnpm-debug.log*
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# SQLite sidecar files & backups
+*.db-wal
+*.db-shm
+*.db.bak-*
+*.db.backup
+
+# Test & tooling artefacts
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+frontend/coverage/
+frontend/.vite/

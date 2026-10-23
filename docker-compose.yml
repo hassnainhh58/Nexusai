@@ -1,0 +1,38 @@
+# Production-like stack: FastAPI + SQLite on the backend, the built React app
+# served by nginx on the frontend.
+#
+#   cp backend/.env.example backend/.env   # then fill in the values
+#   export VITE_CLERK_PUBLISHABLE_KEY=pk_...
+#   docker compose up --build
+#
+# The app is then available on http://localhost:8080 (nginx proxies /api).
+
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      ENVIRONMENT: production
+      NEXUSAI_DB_PATH: /data/nexusai.db
+      CORS_ORIGINS: http://localhost:8080
+    volumes:
+      - nexusai-data:/data
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?set VITE_CLERK_PUBLISHABLE_KEY}
+        VITE_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  nexusai-data:
