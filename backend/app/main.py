@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -143,6 +144,31 @@ async def request_context_middleware(request: Request, call_next):
 # ==========================================
 # GLOBAL EXCEPTION HANDLER
 # ==========================================
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Reports which field failed without echoing the submitted value.
+
+    The default FastAPI payload includes the invalid input, which can be a
+    large (or private) chat message. The field name and the rule are enough to
+    diagnose the problem, so only those are returned and logged.
+    """
+    errors = [
+        {
+            "field": ".".join(
+                str(part) for part in error.get("loc", ()) if part not in ("body", "query", "path")
+            ),
+            "message": error.get("msg", "Invalid value"),
+            "type": error.get("type", "value_error"),
+        }
+        for error in exc.errors()
+    ]
+    logger.warning("Request validation failed: %s", errors)
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": errors},
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(

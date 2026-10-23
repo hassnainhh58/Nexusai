@@ -18,6 +18,7 @@ const APP_VERSION = "v1.1.0";
 const LAST_CONVERSATION_KEY = "nexusai-last-conversation";
 const NOTIFICATION_TIMEOUT = 4000;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const MAX_MESSAGE_LENGTH = 15000;
 
 // Built outside the component so the ref is only dereferenced when a request
 // is actually made, never during render.
@@ -225,16 +226,23 @@ export default function App() {
       message = text
         ? `${text}\n\nAttached file: ${file.filename}\n${file.extracted_text}`
         : `Attached file: ${file.filename}\n${file.extracted_text}`;
-      if (message.length > 15000) {
-        message = message.slice(0, 15000);
+      if (message.length > MAX_MESSAGE_LENGTH) {
+        message = message.slice(0, MAX_MESSAGE_LENGTH);
       }
       setFile(null);
     }
 
     if (!message.trim()) return;
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      notify(
+        "error",
+        `That message is too long. The limit is ${MAX_MESSAGE_LENGTH.toLocaleString()} characters.`
+      );
+      return;
+    }
     setInput("");
     sendMessage(message);
-  }, [input, loading, file, sendMessage, editImage, clearAttachment]);
+  }, [input, loading, file, sendMessage, editImage, clearAttachment, notify]);
 
   const handleSuggestion = useCallback((text) => {
     setInput(text);

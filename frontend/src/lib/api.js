@@ -83,8 +83,13 @@ export async function readErrorMessage(response) {
   try {
     const body = await response.json();
     if (typeof body?.detail === "string") return body.detail;
-    if (Array.isArray(body?.detail) && body.detail[0]?.msg) {
-      return body.detail[0].msg;
+    // FastAPI validation errors: report the field and the rule that failed.
+    const first = Array.isArray(body?.detail) ? body.detail[0] : null;
+    if (first) {
+      const message = first.message || first.msg;
+      if (typeof message === "string") {
+        return first.field ? `${first.field}: ${message}` : message;
+      }
     }
   } catch {
     // Response was not JSON (proxy error, empty body, ...).

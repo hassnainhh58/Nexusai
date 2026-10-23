@@ -755,3 +755,26 @@ def test_image_edit_requires_authentication(anon_client):
         data={"prompt": "edit this"},
     )
     assert response.status_code == 401
+
+
+# ==========================================
+# REQUEST VALIDATION REPORTING
+# ==========================================
+def test_chat_validation_reports_the_field_without_echoing_content(client):
+    response = client.post("/api/chat", json={"message": "x" * 15001})
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert isinstance(detail, list) and detail
+    assert detail[0]["field"] == "message"
+    assert "15000" in detail[0]["message"]
+    assert "x" * 50 not in response.text
+
+
+def test_chat_empty_message_reports_why_it_was_rejected(client):
+    response = client.post("/api/chat", json={"message": "   "})
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail[0]["field"] == ""
+    assert "empty" in detail[0]["message"]

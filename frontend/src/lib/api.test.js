@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createApiClient, editImage, uploadFile } from "./api.js";
+import { createApiClient, editImage, readErrorMessage, uploadFile } from "./api.js";
 
 function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
@@ -87,6 +87,38 @@ describe("editImage", () => {
     expect(entries.map(([key]) => key)).toEqual(["image", "prompt", "conversation_id"]);
     expect(entries[1][1]).toBe("make it blue");
     expect(entries[2][1]).toBe("12");
+  });
+});
+
+describe("readErrorMessage", () => {
+  it("reports the field that failed validation", async () => {
+    const response = {
+      status: 422,
+      json: async () => ({
+        detail: [
+          {
+            field: "message",
+            message: "String should have at most 15000 characters",
+            type: "string_too_long",
+          },
+        ],
+      }),
+    };
+
+    await expect(readErrorMessage(response)).resolves.toBe(
+      "message: String should have at most 15000 characters"
+    );
+  });
+
+  it("falls back to a readable message when the body is not JSON", async () => {
+    const response = {
+      status: 429,
+      json: async () => {
+        throw new Error("not json");
+      },
+    };
+
+    await expect(readErrorMessage(response)).resolves.toContain("too quickly");
   });
 });
 

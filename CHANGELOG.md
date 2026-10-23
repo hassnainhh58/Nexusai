@@ -16,6 +16,13 @@ the project adheres to [Semantic Versioning](https://semver.org/).
   becomes part of the next chat turn (together with the typed question, when
   present).
 
+### Fixed
+
+- Request validation failures (HTTP 422) now name the offending field and the
+  rule that failed (without echoing the submitted content) and are logged with
+  the request id. The composer also warns before sending a message over the
+  15,000 character limit instead of letting the request fail.
+
 ## [1.1.0] - 2026-10-23
 
 ### Added
