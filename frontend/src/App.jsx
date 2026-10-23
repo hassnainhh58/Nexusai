@@ -445,6 +445,7 @@ export default function App() {
               file={file}
               onFileSelect={handleFileSelect}
               onFileClear={handleFileClear}
+              maxLength={MAX_MESSAGE_LENGTH}
             />
           </main>
 

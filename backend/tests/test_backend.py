@@ -778,3 +778,13 @@ def test_chat_empty_message_reports_why_it_was_rejected(client):
     detail = response.json()["detail"]
     assert detail[0]["field"] == ""
     assert "empty" in detail[0]["message"]
+
+
+def test_chat_request_accepts_the_full_message_limit():
+    from pydantic import ValidationError
+
+    from app.models.chat import ChatRequest
+
+    assert len(ChatRequest(message="x" * 15000).message) == 15000
+    with pytest.raises(ValidationError):
+        ChatRequest(message="x" * 15001)

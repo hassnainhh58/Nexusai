@@ -22,6 +22,9 @@ the project adheres to [Semantic Versioning](https://semver.org/).
   rule that failed (without echoing the submitted content) and are logged with
   the request id. The composer also warns before sending a message over the
   15,000 character limit instead of letting the request fail.
+- The composer shows a live character counter as you approach the 15,000
+  character message limit and disables sending once it is exceeded, so the
+  actual limit is visible instead of only surfacing as an error.
 
 ## [1.1.0] - 2026-10-23
 

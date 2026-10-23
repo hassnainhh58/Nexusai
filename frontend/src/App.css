@@ -1401,6 +1401,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  position: relative;
 }
 
 .hint-pill {
@@ -1411,6 +1412,27 @@
 
 .hint-divider {
   color: var(--text-subtle);
+}
+
+.char-counter {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.char-counter.is-over {
+  color: #e5484d;
+}
+
+@media (max-width: 520px) {
+  .char-counter {
+    display: none;
+  }
 }
 
 .attach-button {
